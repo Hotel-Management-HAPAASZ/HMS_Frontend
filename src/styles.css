@@ -1,1 +1,141 @@
-/* You can add global styles to this file, and also import other style files */
+/* =============================
+   GLOBAL THEME (ROOT COLORS)
+============================= */
+:root {
+  --app-primary: #4f46e5;      /* Indigo */
+  --app-secondary: #06b6d4;    /* Cyan */
+  --app-success: #22c55e;
+  --app-warning: #f59e0b;
+  --app-danger: #ef4444;
+
+  --app-bg: #f5f7fb;          /* App background */
+  --app-text: #0f172a;        /* Primary text */
+  --app-card: #ffffff;        /* Card background */
+  --app-border: rgba(15, 23, 42, 0.08);
+}
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: var(--app-text);
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+}
+
+/* =============================
+   REUSABLE BUTTON STYLES
+============================= */
+.btn-app {
+  background-color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
+  color: #fff !important;
+}
+.btn-app:hover {
+  filter: brightness(0.95);
+  color: #fff !important;
+}
+
+/* =============================
+   REUSABLE APP CARD
+============================= */
+.app-card {
+  background: var(--app-card);
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+  box-shadow: 0 10px 25px rgba(2, 8, 23, 0.08);
+}
+
+/* =============================
+   BOOTSTRAP COMPATIBILITY PATCH
+   Prevent Bootstrap focus styles from affecting Angular Material MDC inputs
+============================= */
+
+/* Bootstrap adds box-shadow/outline on focus to inputs/selects/textarea.
+   Angular Material fields contain a real input, so bootstrap may leak in.
+   We neutralize focus styles ONLY inside mat-mdc-form-field.
+*/
+.mat-mdc-form-field input:focus,
+.mat-mdc-form-field select:focus,
+.mat-mdc-form-field textarea:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Also remove bootstrap "form-control" focus shadow if applied inside mat fields */
+.mat-mdc-form-field .form-control:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+/* If you are using bootstrap's .form-select inside mat (rare) */
+.mat-mdc-form-field .form-select:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+/* =============================
+   ANGULAR MATERIAL (MDC) FORM FIELD THEME
+============================= */
+
+/* Rounded outlined fields */
+.mdc-text-field--outlined {
+  border-radius: 5px !important;
+}
+
+/* Default outline border color */
+.mdc-notched-outline__leading,
+.mdc-notched-outline__notch,
+.mdc-notched-outline__trailing {
+  border-color: var(--app-border) !important;
+}
+
+/* ✅ IMPORTANT:
+   DO NOT apply box-shadow to these three outline pieces.
+   It creates a vertical seam line (exact issue in your screenshot).
+*/
+.mdc-text-field--focused .mdc-notched-outline__leading,
+.mdc-text-field--focused .mdc-notched-outline__notch,
+.mdc-text-field--focused .mdc-notched-outline__trailing {
+  border-color: rgba(79, 70, 229, 0.55) !important;
+  box-shadow: none !important; /* ✅ key fix */
+}
+
+/* ✅ Apply focus ring to the single container element instead */
+.mat-mdc-form-field.mat-focused .mdc-text-field--outlined {
+  box-shadow: 0 0 0 0.25rem rgba(79, 70, 229, 0.15) !important;
+}
+
+/* Remove Material focus overlay wash (cleaner with your theme) */
+.mat-mdc-form-field .mat-mdc-form-field-focus-overlay {
+  opacity: 0 !important;
+}
+
+/* Remove MDC line ripple if it appears anywhere */
+.mat-mdc-form-field .mdc-line-ripple,
+.mat-mdc-form-field .mdc-line-ripple::before,
+.mat-mdc-form-field .mdc-line-ripple::after {
+  display: none !important;
+  opacity: 0 !important;
+}
+
+/* Material primary buttons */
+.mat-mdc-raised-button.mat-primary {
+  background: var(--app-primary) !important;
+}
+
+/* =============================
+   OPTIONAL: CLEAN NUMBER INPUTS
+   (Remove spinners + browser inner decorations)
+============================= */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
