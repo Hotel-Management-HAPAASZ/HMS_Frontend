@@ -14,17 +14,21 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { AuthService } from '../../../core/services/auth.service';
 import { NewComplaintService } from '../../../core/services/new-complaint.service';
 
+import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+
 // Types for UI list items (derived from backend)
 type UIStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 type SortKey = 'newest' | 'oldest' | 'status';
 
-type UIComplaint = {
-  id: string;               // complaintId (CMP-xxx) or fallback to numeric id
-  subject: string;          // title if provided by backend; otherwise derived
+export type UIComplaint = {
+  id: string;               // referenceNumber
+  subject: string;          // title
   message: string;          // description
   status: UIStatus;
+  contactPreference: 'CALL' | 'EMAIL';
   createdAt: string;
   updatedAt?: string | null;
+  serverErrors?: any;
 };
 
 @Component({
@@ -40,7 +44,8 @@ type UIComplaint = {
     MatSelectModule,
     MatDividerModule,
     MatButtonModule,
-    MatSnackBarModule
+    MatSnackBarModule,
+    ReactiveFormsModule
   ],
   template: `
     <div class="track-bg">
@@ -58,7 +63,7 @@ type UIComplaint = {
             </div>
 
             <div class="hero-badge">
-              <span class="badge-dot"></span>
+              <mat-icon class="badge-ico" fontIcon="search"></mat-icon>
               <span class="text-muted small">Tip:</span>
               <span class="small fw-semibold">Use search &amp; filters to find quickly</span>
             </div>
@@ -77,25 +82,24 @@ type UIComplaint = {
               </div>
             </div>
 
-            <div class="filters d-flex flex-column flex-md-row gap-2">
+            <div class="filters d-flex flex-column flex-md-row gap-2 align-items-md-center">
               <!-- Search (client-side filter on current page) -->
-              <mat-form-field appearance="outline" class="filter-field">
-                <mat-label>Search</mat-label>
+              <mat-form-field appearance="outline" class="filter-field search-field mb-0">
+                <mat-label>Search (subject/message)</mat-label>
                 <input
                   matInput
                   [value]="query()"
                   (input)="setQuery($any($event.target).value)"
-                  placeholder="Search by subject or message…"
+                  placeholder="Type to search…"
                   maxlength="60"
                 />
-                <mat-hint align="end">{{ (query() || '').length }}/60</mat-hint>
               </mat-form-field>
 
               <!-- Status (server-side filter applied only on Apply) -->
-              <mat-form-field appearance="outline" class="filter-field">
+              <mat-form-field appearance="outline" class="filter-field mb-0">
                 <mat-label>Status</mat-label>
                 <mat-select [value]="statusFilter()" (selectionChange)="onStatusChange($event.value)">
-                  <mat-option value="ALL">All</mat-option>
+                  <mat-option value="ALL">All Statuses</mat-option>
                   <mat-option value="OPEN">Open</mat-option>
                   <mat-option value="IN_PROGRESS">In Progress</mat-option>
                   <mat-option value="RESOLVED">Resolved</mat-option>
@@ -104,9 +108,9 @@ type UIComplaint = {
               </mat-form-field>
 
               <!-- Sort (client-side sort on current page) -->
-              <mat-form-field appearance="outline" class="filter-field">
-                <mat-label>Sort</mat-label>
-                <mat-select [value]="sortBy()" (selectionChange)="sortBy.set($event.value)">
+              <mat-form-field appearance="outline" class="filter-field mb-0">
+                <mat-label>Sort By</mat-label>
+                <mat-select [value]="sortBy()" (selectionChange)="onSortChange($event.value)">
                   <mat-option value="newest">Newest first</mat-option>
                   <mat-option value="oldest">Oldest first</mat-option>
                   <mat-option value="status">By status</mat-option>
@@ -114,127 +118,284 @@ type UIComplaint = {
               </mat-form-field>
 
               <!-- Apply button (explicit API call) -->
-              <div class="d-flex align-items-end">
-                <button mat-stroked-button class="apply-btn" (click)="applyFilters()" [disabled]="loading()">
-                  Apply
-                </button>
-              </div>
+              <button mat-stroked-button class="apply-btn" (click)="applyFilters()" [disabled]="loading()">
+                Apply
+              </button>
             </div>
           </div>
 
-          <mat-divider class="mb-3"></mat-divider>
+          <mat-divider class="mb-4"></mat-divider>
 
           <!-- LOADING / ERROR -->
-          <div *ngIf="loading()" class="text-muted small mb-2">Loading complaints…</div>
-          <div *ngIf="error()" class="text-danger small mb-2">{{ error() }}</div>
+          <div *ngIf="loading()" class="text-center text-muted small py-4">Loading complaints…</div>
+          <div *ngIf="error()" class="text-center text-danger small py-4">{{ error() }}</div>
 
           <!-- EMPTY STATE -->
-          <div *ngIf="!loading() && filteredList().length === 0" class="empty">
-            <div class="empty-ico">📝</div>
-            <div class="fw-bold">No complaints found</div>
-            <div class="text-muted small">
+          <div *ngIf="!loading() && filteredList().length === 0" class="empty text-center py-5">
+            <div class="empty-ico fs-1 mb-2">📝</div>
+            <div class="fw-bold fs-5">No complaints found</div>
+            <div class="text-muted small mt-1">
               Try clearing filters or register a new complaint if needed.
             </div>
           </div>
 
           <!-- LIST -->
-          <div class="grid gap-3" *ngIf="filteredList().length > 0">
-            <mat-card class="complaint-card app-card p-3" *ngFor="let c of filteredList(); trackBy: trackById">
+          <div class="grid gap-3" *ngIf="paginatedList().length > 0">
+            <mat-card class="complaint-card app-card p-4 mb-3" *ngFor="let c of paginatedList(); trackBy: trackById">
+              <div class="d-flex flex-column flex-md-row justify-content-between gap-3">
 
-              <div class="row-wrap">
-                <!-- LEFT -->
-                <div class="left">
-                  <div class="head">
-                    <div class="title-ico">🎫</div>
-                    <div class="min-w-0">
-                      <div class="complaint-title text-truncate">
-                        {{ c.subject || '—' }}
-                      </div>
+                <!-- LEFT CONTENT -->
+                <div class="flex-grow-1 min-w-0">
+                  <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="title-ico border rounded p-1 bg-light text-primary">
+                       <mat-icon style="font-size: 18px; width: 18px; height: 18px;">receipt_long</mat-icon>
+                    </span>
+                    <h6 class="fw-bold mb-0 text-truncate">{{ c.subject || '—' }}</h6>
+                    <span class="text-muted small ms-2">#{{ c.id }}</span>
+                  </div>
 
-                      <div class="meta text-muted small mt-1">
-                        <span class="me-2">
-                          <mat-icon class="meta-ico">schedule</mat-icon>
-                          Created: {{ formatDate(c.createdAt) }}
-                        </span>
+                  <div class="d-flex flex-wrap gap-3 text-muted small mb-3">
+                    <span class="d-flex align-items-center gap-1">
+                      <mat-icon style="font-size: 16px; width: 16px; height: 16px;">schedule</mat-icon>
+                      Created: {{ formatDate(c.createdAt) }}
+                    </span>
+                    <span class="d-flex align-items-center gap-1" *ngIf="c.updatedAt">
+                      <mat-icon style="font-size: 16px; width: 16px; height: 16px;">update</mat-icon>
+                      Updated: {{ formatDate(c.updatedAt) }}
+                    </span>
+                  </div>
 
-                        <span class="me-2" *ngIf="c.updatedAt">
-                          <mat-icon class="meta-ico">update</mat-icon>
-                          Updated: {{ formatDate(c.updatedAt) }}
-                        </span>
-                      </div>
+                  <div class="complaint-msg bg-light p-3 rounded" *ngIf="editingId() !== c.id">
+                    <p class="mb-1">{{ c.message || 'No description provided.' }}</p>
+                    <div class="text-muted small mt-2">
+                       <mat-icon style="font-size: 14px; width: 14px; height: 14px; vertical-align: bottom;">contact_phone</mat-icon>
+                       Preferred Contact: <strong>{{ c.contactPreference }}</strong>
                     </div>
                   </div>
 
-                  <div class="complaint-msg mt-2">
-                    {{ c.message || '—' }}
+                  <!-- EDIT FORM -->
+                  <div class="mt-3 p-3 border rounded bg-light" *ngIf="editingId() === c.id">
+                    <form [formGroup]="editForm" (ngSubmit)="saveEdit(c)" class="d-flex flex-column gap-2">
+                       <mat-form-field appearance="outline" class="w-100 mb-2">
+                        <mat-label>Title</mat-label>
+                        <input matInput formControlName="title" minlength="10" maxlength="100">
+                        <mat-error *ngIf="editForm.controls['title'].invalid">Title must be between 10-100 chars</mat-error>
+                        <mat-error *ngIf="c.serverErrors && c.serverErrors['title']">{{ c.serverErrors['title'] }}</mat-error>
+                      </mat-form-field>
+
+                       <mat-form-field appearance="outline" class="w-100 mb-2">
+                        <mat-label>Description</mat-label>
+                        <textarea matInput formControlName="description" rows="3" minlength="20" maxlength="500"></textarea>
+                        <mat-error *ngIf="editForm.controls['description'].invalid">Description must be 20-500 chars</mat-error>
+                        <mat-error *ngIf="c.serverErrors && c.serverErrors['description']">{{ c.serverErrors['description'] }}</mat-error>
+                      </mat-form-field>
+
+                      <mat-form-field appearance="outline" class="w-100 mb-2">
+                        <mat-label>Contact Preference</mat-label>
+                        <mat-select formControlName="contactPreference">
+                          <mat-option value="EMAIL">Email</mat-option>
+                          <mat-option value="CALL">Call</mat-option>
+                        </mat-select>
+                        <mat-error *ngIf="c.serverErrors && c.serverErrors['contactPreference']">{{ c.serverErrors['contactPreference'] }}</mat-error>
+                      </mat-form-field>
+
+                      <div class="d-flex justify-content-end gap-2 mt-2">
+                        <button mat-stroked-button type="button" (click)="cancelEdit()">Cancel</button>
+                        <button mat-raised-button color="primary" type="submit" [disabled]="editForm.invalid || submitting()">Save</button>
+                      </div>
+                    </form>
+                  </div>
+                  <!-- END EDIT FORM -->
+
+                </div>
+
+                <!-- RIGHT SIDE (STATUS & ACTIONS) -->
+                <div class="d-flex flex-column align-items-end justify-content-between gap-3 text-end" style="min-width: 140px;">
+                  <div>
+                    <span class="badge rounded-pill px-3 py-2 status-badge" [ngClass]="statusClass(normalizeStatus(c.status))">
+                      {{ normalizeStatus(c.status) | titlecase }}
+                    </span>
+                    <div class="text-muted small mt-2">
+                      {{ statusNote(normalizeStatus(c.status)) }}
+                    </div>
+                  </div>
+
+                  <!-- ACTIONS -->
+                  <div class="actions d-flex flex-column gap-2 w-100" *ngIf="editingId() !== c.id">
+                     <!-- OPEN status = can edit -->
+                     <button mat-stroked-button color="primary" class="w-100" *ngIf="c.status === 'OPEN'" (click)="startEdit(c)">
+                       Edit Details
+                     </button>
+
+                     <!-- RESOLVED status = can verify or reopen -->
+                     <button mat-raised-button color="primary" class="w-100" *ngIf="c.status === 'RESOLVED'" (click)="confirm(c.id)" [disabled]="submitting()">
+                       Confirm
+                     </button>
+                     <button mat-stroked-button color="warn" class="w-100 mt-1" *ngIf="c.status === 'RESOLVED'" (click)="reopen(c.id)" [disabled]="submitting()">
+                       Reopen
+                     </button>
+
+                     <!-- CLOSED status = Read ONLY -->
+                     <div *ngIf="c.status === 'CLOSED'" class="text-muted small fw-semibold w-100 text-center border p-2 rounded bg-light">
+                       <mat-icon style="font-size: 14px; width: 14px; height: 14px; vertical-align: middle;">lock</mat-icon> Read-Only
+                     </div>
                   </div>
                 </div>
 
-                <!-- RIGHT -->
-                <div class="right">
-                  <mat-chip class="status-chip" [ngClass]="statusClass(normalizeStatus(c.status))">
-                    {{ normalizeStatus(c.status) }}
-                  </mat-chip>
-
-                  <div class="right-note text-muted small">
-                    {{ statusNote(normalizeStatus(c.status)) }}
-                  </div>
-                </div>
               </div>
-
             </mat-card>
           </div>
 
-          <!-- PAGINATION (backend) -->
-          <div class="d-flex justify-content-between align-items-center mt-3" *ngIf="pageInfo().totalPages > 1">
-            <button mat-stroked-button (click)="prevPage()" [disabled]="pageInfo().first || loading()">Prev</button>
-            <div class="small text-muted">
-              Page <b>{{ pageInfo().number + 1 }}</b> of <b>{{ pageInfo().totalPages }}</b>
+          <!-- PAGINATION (client-side) -->
+          <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top" *ngIf="totalPages() > 1">
+            <button mat-stroked-button (click)="prevPage()" [disabled]="isFirstPage()">
+                <mat-icon>chevron_left</mat-icon> Previous
+            </button>
+            <div class="small fw-semibold text-muted">
+              Page {{ clientPage() + 1 }} of {{ totalPages() }}
             </div>
-            <button mat-stroked-button (click)="nextPage()" [disabled]="pageInfo().last || loading()">Next</button>
+            <button mat-stroked-button (click)="nextPage()" [disabled]="isLastPage()">
+                Next <mat-icon>chevron_right</mat-icon>
+            </button>
           </div>
 
         </div>
 
-        <div class="text-center mt-4 small text-muted">
+        <div class="text-center mt-4 pb-4 small text-muted">
           © 2026 Hotel Booking System
         </div>
 
       </div>
     </div>
   `,
-  styles: [/* keep your existing CSS exactly as you posted */]
+  styles: [`
+    .track-bg {
+      background: var(--app-bg, #f4f6f8);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .app-card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      border: 1px solid rgba(0,0,0,0.05);
+    }
+    .hero {
+      background: linear-gradient(to right, #ffffff, #f8faff);
+      border-left: 4px solid var(--app-primary, #3f51b5);
+    }
+    .kicker {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--app-primary, #3f51b5);
+      margin-bottom: 4px;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      background: #f0f4ff;
+      border: 1px solid #d6e2ff;
+      color: #3f51b5;
+    }
+    .filter-field {
+      width: 200px;
+    }
+    .search-field {
+      width: 300px;
+    }
+    ::ng-deep .filter-field .mat-mdc-text-field-wrapper {
+      background-color: white !important;
+    }
+    ::ng-deep .filter-field .mat-mdc-form-field-subscript-wrapper {
+        display: none;
+    }
+    .apply-btn {
+      height: 56px;
+      border-radius: 4px;
+    }
+    @media (max-width: 768px) {
+        .filter-field, .search-field {
+            width: 100%;
+        }
+    }
+    .status-badge {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      border: 1px solid transparent;
+    }
+    .st-open {
+      background-color: #fff3cd;
+      color: #856404;
+      border-color: #ffeeba;
+    }
+    .st-progress {
+      background-color: #e2e3e5;
+      color: #383d41;
+      border-color: #d6d8db;
+    }
+    .st-resolved {
+      background-color: #d4edda;
+      color: #155724;
+      border-color: #c3e6cb;
+    }
+    .st-closed {
+      background-color: #cce5ff;
+      color: #004085;
+      border-color: #b8daff;
+    }
+  `]
 })
 export class TrackComplaintComponent {
+  submitting = signal(false);
+
+  editingId = signal<string | null>(null);
+
+  editForm: FormGroup;
+
+  loading = signal(false);
+  error = signal<string | null>(null);
+
   constructor(
     private auth: AuthService,
     private complaints: NewComplaintService,
-    private snack: MatSnackBar
+    private snack: MatSnackBar,
+    private fb: FormBuilder
   ) {
+    this.editForm = this.fb.group({
+      title: ['', [Validators.required, Validators.minLength(10), Validators.maxLength(100)]],
+      description: ['', [Validators.required, Validators.minLength(20), Validators.maxLength(500)]],
+      contactPreference: ['EMAIL', Validators.required]
+    });
     // Initial first load: show ALL complaints of the user (no filter)
     queueMicrotask(() => this.load().catch(() => { }));
   }
-
-  // ---------- UI state (signals)
-  loading = signal(false);
-  error = signal<string | null>(null);
 
   // Filters
   query = signal('');
   statusFilter = signal<'ALL' | UIStatus>('ALL');
   sortBy = signal<SortKey>('newest');
 
-  // Pagination
+  // Pagination (Request a large block so we can search/sort everything client-side)
   page = signal(0);
-  size = signal(5);
+  size = signal(100);
   pageInfo = signal({
     totalElements: 0,
     totalPages: 0,
-    size: 5,
+    size: 100,
     number: 0,
     first: true,
     last: true
   });
+
+  // Client-side pagination state
+  clientPage = signal(0);
+  itemsPerPage = signal(5);
 
   // Raw items loaded from backend (mapped to UIComplaint)
   allItems = signal<UIComplaint[]>([]);
@@ -242,6 +403,7 @@ export class TrackComplaintComponent {
   // ---------------- FILTER HANDLERS ----------------
   setQuery(v: string) {
     this.query.set((v ?? '').trim());
+    this.clientPage.set(0); // Reset client page on new search
   }
 
   onStatusChange(v: 'ALL' | UIStatus) {
@@ -249,8 +411,14 @@ export class TrackComplaintComponent {
     // Do NOT auto-load. User clicks Apply to fetch.
   }
 
+  onSortChange(v: SortKey) {
+    this.sortBy.set(v);
+    this.clientPage.set(0); // Reset client page on sort change
+  }
+
   async applyFilters() {
     this.page.set(0);
+    this.clientPage.set(0);
     await this.load();
   }
 
@@ -268,7 +436,6 @@ export class TrackComplaintComponent {
 
     try {
       const status = this.statusFilter();
-      // Debug (optional): console.log('Loading complaints', { userId: u.id, status, page: this.page(), size: this.size() });
 
       const pageResp = await this.complaints.myComplaints({
         userId: Number(u.id),
@@ -289,18 +456,14 @@ export class TrackComplaintComponent {
 
       // Map backend items to your UI model
       const mapped = (pageResp.content ?? []).map((r: any): UIComplaint => {
-        const subject =
-          (r.title as string) ??
-          (r.subject as string) ??
-          `[${r.category ?? 'Complaint'}] ${r.complaintId ?? r.id}`;
-
         return {
-          id: String(r.complaintId ?? r.id),
-          subject,
+          id: String(r.referenceNumber),
+          subject: String(r.title ?? ''),
           message: String(r.description ?? ''),
+          contactPreference: r.contactPreference as 'CALL' | 'EMAIL',
           status: this.normalizeStatus(r.status),
-          createdAt: String(r.createdAt ?? r.submissionDate ?? new Date().toISOString()),
-          updatedAt: String(r.updatedAt ?? r.submissionDate ?? '') || null
+          createdAt: String(r.createdAt),
+          updatedAt: String(r.updatedAt || null)
         };
       });
 
@@ -312,6 +475,93 @@ export class TrackComplaintComponent {
       this.allItems.set([]);
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  // ---------- Action Handlers
+  startEdit(c: UIComplaint) {
+    this.editingId.set(c.id);
+    this.editForm.reset({
+      title: c.subject,
+      description: c.message,
+      contactPreference: c.contactPreference
+    });
+    c.serverErrors = null;
+  }
+
+  cancelEdit() {
+    this.editingId.set(null);
+    this.editForm.reset();
+  }
+
+  async saveEdit(c: UIComplaint) {
+    if (this.editForm.invalid) {
+      this.editForm.markAllAsTouched();
+      return;
+    }
+
+    const u = this.auth.user();
+    if (!u) return;
+
+    this.submitting.set(true);
+    c.serverErrors = null;
+
+    try {
+      const v = this.editForm.value;
+      await this.complaints.update(c.id, Number(u.id), {
+        title: v.title,
+        description: v.description,
+        contactPreference: v.contactPreference
+      });
+      this.snack.open('Complaint updated successfully', 'OK', { duration: 2000 });
+      this.cancelEdit();
+      await this.load();
+    } catch (err: any) {
+      if (err.status === 400 && err.error && typeof err.error === 'object') {
+        c.serverErrors = err.error;
+        this.snack.open('Please fix the validation errors.', 'OK', { duration: 3000 });
+      } else if (err.status === 409) {
+        this.snack.open(err.error?.message || 'Cannot edit this complaint right now.', 'OK', { duration: 3000 });
+      } else {
+        const msg = err?.error?.message || 'Update failed';
+        this.snack.open(msg, 'OK', { duration: 3000 });
+      }
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
+  async confirm(id: string) {
+    const u = this.auth.user();
+    if (!u) return;
+
+    this.submitting.set(true);
+    try {
+      await this.complaints.confirmResolution(id, Number(u.id));
+      this.snack.open('Resolution confirmed. Complaint closed.', 'OK', { duration: 2500 });
+      await this.load();
+    } catch (err: any) {
+      const msg = err?.error?.message || 'Action failed';
+      this.snack.open(msg, 'OK', { duration: 3000 });
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
+  async reopen(id: string) {
+    const u = this.auth.user();
+    if (!u) return;
+
+    this.submitting.set(true);
+    try {
+      await this.complaints.reopen(id, Number(u.id));
+      this.snack.open('Complaint reopened as IN_PROGRESS.', 'OK', { duration: 2500 });
+      await this.load();
+    } catch (err: any) {
+      const msg = err?.error?.message || 'Action failed';
+      this.snack.open(msg, 'OK', { duration: 3000 });
+    } finally {
+      this.submitting.set(false);
     }
   }
 
@@ -348,17 +598,26 @@ export class TrackComplaintComponent {
     return arr;
   });
 
-  // ---------- Pagination handlers (call backend)
-  async prevPage() {
-    if (!this.pageInfo().first) {
-      this.page.set(Math.max(0, this.page() - 1));
-      await this.load();
+  // Client-side pagination derived from filteredList
+  paginatedList = computed(() => {
+    const start = this.clientPage() * this.itemsPerPage();
+    return this.filteredList().slice(start, start + this.itemsPerPage());
+  });
+
+  totalPages = computed(() => Math.max(1, Math.ceil(this.filteredList().length / this.itemsPerPage())));
+  isFirstPage = computed(() => this.clientPage() === 0);
+  isLastPage = computed(() => this.clientPage() >= this.totalPages() - 1);
+
+  // ---------- Pagination handlers (client-side)
+  prevPage() {
+    if (!this.isFirstPage()) {
+      this.clientPage.set(this.clientPage() - 1);
     }
   }
-  async nextPage() {
-    if (!this.pageInfo().last) {
-      this.page.set(this.page() + 1);
-      await this.load();
+
+  nextPage() {
+    if (!this.isLastPage()) {
+      this.clientPage.set(this.clientPage() + 1);
     }
   }
 
@@ -406,7 +665,7 @@ export class TrackComplaintComponent {
     }
     try {
       const res = await this.complaints.track(complaintId, Number(u.id));
-      this.snack.open(`Status for ${res.complaintId}: ${res.status}`, 'OK', { duration: 2500 });
+      this.snack.open(`Status for ${res.referenceNumber}: ${res.status}`, 'OK', { duration: 2500 });
     } catch (err) {
       const msg = NewComplaintService.parseHttpError(err, 'Failed to track complaint');
       this.snack.open(msg, 'OK', { duration: 2500 });

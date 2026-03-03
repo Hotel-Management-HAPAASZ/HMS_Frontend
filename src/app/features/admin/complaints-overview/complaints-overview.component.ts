@@ -20,9 +20,12 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
-import { ComplaintService } from '../../../core/services/complaint.service';
+import { NewComplaintService } from '../../../core/services/new-complaint.service';
+import { AdminApiService } from '../../../core/services/admin-api.service';
+import { ApiUserService } from '../../../core/services/api-user.service';
 import { UserService } from '../../../core/services/user.service';
 import { Complaint, ComplaintStatus } from '../../../core/models/models';
+import { MatSnackBar } from '@angular/material/snack-bar';
 
 type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 type StatusFilter = '' | 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
@@ -545,15 +548,26 @@ export class ComplaintsOverviewComponent {
   private fb = inject(NonNullableFormBuilder);
   private cdr = inject(ChangeDetectorRef);
 
-  constructor(private complaints: ComplaintService, private users: UserService) {
+  // Pagination state
+  page = 0;
+  size = 10;
+  pageInfo = { totalElements: 0, totalPages: 0, number: 0, size: 10, first: true, last: true };
+  loading = false;
+
+  constructor(
+    private complaints: NewComplaintService,
+    private adminApi: AdminApiService,
+    private users: UserService,
+    private apiUser: ApiUserService,
+    private snack: MatSnackBar
+  ) {
     this.initFilterPredicate();
     this.reload();
   }
 
   // Raw rows from service
-  rows: Complaint[] = [];
-  // Stable data source for MatTable (prevents hang)
-  dataSource = new MatTableDataSource<Complaint>([]);
+  rows: any[] = [];
+  dataSource = new MatTableDataSource<any>([]);
 
   // Locally enhanced metadata
   private metas = new Map<string | number, ComplaintMeta>();
@@ -596,39 +610,66 @@ export class ComplaintsOverviewComponent {
   );
 
   // ---------- lifecycle / data ----------
-  reload() { this.refresh(); }
+  reload() { this.page = 0; this.fetchData(); }
 
-  refresh() {
-    this.rows = this.complaints.list();
-
-    // ensure metas have at least updatedAt
-    for (const c of this.rows) {
-      const m = this.metaOf(c.id);
-      if (!m.updatedAt) {
-        this.setMeta(c.id, { updatedAt: new Date().toISOString(), priority: m.priority || 'MEDIUM' });
-      }
-    }
-
-    // NEW: build caches once per refresh
-    const allUsers = this.safeArray(this.users.list?.() ?? []);
-    this.staffOptions = allUsers.filter((u: any) => {
-      const role = String(u?.role ?? '').toUpperCase();
-      return role === 'STAFF' || role === 'ADMIN';
-    });
-    this.userNameCache.clear();
-    for (const u of allUsers) {
-      const id = this.getUserId(u);
-      if (id !== undefined) {
-        const name = u?.fullName ?? u?.email ?? String(id);
-        this.userNameCache.set(id, name);
-      }
-    }
-    // ---- end caches ----
-
-    this.dataSource.data = this.rows;
-    this.applyFilters();
+  async fetchData() {
+    this.loading = true;
     this.cdr.markForCheck();
+    try {
+      const resp = await this.complaints.getAllComplaints({
+        page: this.page,
+        size: this.size,
+        status: this.statusFilter || undefined
+      });
+      this.rows = resp.content || [];
+      this.pageInfo = {
+        totalElements: resp.totalElements,
+        totalPages: resp.totalPages,
+        number: resp.number,
+        size: resp.size,
+        first: resp.first,
+        last: resp.last
+      };
+
+      // Load staff list for assignment dropdown
+      try {
+        const staffPage = await this.apiUser.listUsers({ role: 'STAFF', size: 100 });
+        this.staffOptions = staffPage.content;
+        this.userNameCache.clear();
+        for (const u of staffPage.content) {
+          const id = this.getUserId(u);
+          if (id !== undefined) {
+            this.userNameCache.set(id, (u as any).userName ?? u.email ?? String(id));
+          }
+        }
+      } catch { /* staff load is non-critical */ }
+
+      // ensure metas have updatedAt
+      for (const c of this.rows) {
+        const rowId = c.referenceNumber ?? c.id;
+        const m = this.metaOf(rowId);
+        if (!m.updatedAt) {
+          this.setMeta(rowId, { updatedAt: c.createdAt ?? new Date().toISOString(), priority: c.priority || m.priority || 'MEDIUM' });
+        } else {
+          if (c.priority && !m.priority) {
+            this.setMeta(rowId, { priority: c.priority });
+          }
+        }
+      }
+
+      this.dataSource.data = this.rows;
+      this.applyFilters();
+    } catch (err: any) {
+      this.snack.open(err?.error?.message || 'Failed to load complaints', 'OK', { duration: 3000 });
+      this.dataSource.data = [];
+    } finally {
+      this.loading = false;
+      this.cdr.markForCheck();
+    }
   }
+
+  prevPage() { if (!this.pageInfo.first) { this.page--; this.fetchData(); } }
+  nextPage() { if (!this.pageInfo.last)  { this.page++; this.fetchData(); } }
 
   // ---------- filters handlers ----------
   setQuery(v: string) { this.query = v; this.applyFilters(); }
@@ -638,18 +679,19 @@ export class ComplaintsOverviewComponent {
 
   // ---------- MatTable filtering (stable and fast) ----------
   private initFilterPredicate() {
-    this.dataSource.filterPredicate = (c: Complaint, filterJson: string) => {
+    this.dataSource.filterPredicate = (c: any, filterJson: string) => {
       const f = JSON.parse(filterJson) as { q: string; status: StatusFilter; priority: PriorityFilter };
       const statusOk = !f.status || c.status === f.status;
-      const pr = (this.metaOf(c.id).priority || 'MEDIUM') as Priority;
+      const rowId = c.referenceNumber ?? c.id;
+      const pr = (this.metaOf(rowId).priority || c.priority || 'MEDIUM') as Priority;
       const prOk = !f.priority || pr === f.priority;
       if (!statusOk || !prOk) return false;
 
       const q = (f.q || '').toLowerCase().trim();
       if (!q) return true;
 
-      const subj = (c.subject || '').toLowerCase();
-      const cust = this.displayCustomer((c as any).userId).toLowerCase();
+      const subj = (c.title || c.subject || '').toLowerCase();
+      const cust = this.displayCustomer((c as any).userId ?? (c as any).customerId).toLowerCase();
       return subj.includes(q) || cust.includes(q);
     };
   }
@@ -666,7 +708,7 @@ export class ComplaintsOverviewComponent {
   }
 
   // ---------- table helpers ----------
-  trackById = (_: number, row: Complaint) => row.id;
+  trackById = (_: number, row: any) => row.referenceNumber ?? row.id;
 
   displayCustomer(userId: string | number | null | undefined): string {
     if (userId === undefined || userId === null) return 'Customer';
@@ -674,7 +716,7 @@ export class ComplaintsOverviewComponent {
     return this.userNameCache.get(userId) ?? this.users.byId?.(userId as any)?.fullName ?? 'Customer';
   }
 
-  hasCategory(c: Complaint): boolean { return !!this.metaOf(c.id).category; }
+  hasCategory(c: any): boolean { return !!this.metaOf(c.referenceNumber ?? c.id).category; }
 
   metaOf(id: string | number): ComplaintMeta {
     return this.metas.get(id) || {};
@@ -704,30 +746,31 @@ export class ComplaintsOverviewComponent {
   }
 
   // Quick status change from table select
-  onStatusQuickChange(c: Complaint, newStatus: ComplaintStatus) {
-    if ((newStatus === 'RESOLVED' || newStatus === 'CLOSED') && !(this.metaOf(c.id).resolutionNote || '').trim()) {
+  onStatusQuickChange(c: any, newStatus: ComplaintStatus) {
+    const rowId = c.referenceNumber ?? c.id;
+    if ((newStatus === 'RESOLVED' || newStatus === 'CLOSED') && !(this.metaOf(rowId).resolutionNote || '').trim()) {
       this.startEdit(c);
-      this.editForm.controls.status.setValue(newStatus, { emitEvent: false }); // NEW: no emissions
+      this.editForm.controls.status.setValue(newStatus, { emitEvent: false });
       return;
     }
     this.setStatus(c, newStatus);
   }
 
   // ---------- edit flow ----------
-  startEdit(c: Complaint) {
-    this.editingId = c.id;
-    this.editingUserId = (c as any).userId ?? null;
+  startEdit(c: any) {
+    const rowId = c.referenceNumber ?? c.id;
+    this.editingId = rowId;
+    this.editingUserId = c.userId ?? c.customerId ?? null;
 
-    const m = this.metaOf(c.id);
-    // NEW: suppress value/status emissions while initializing the form
+    const m = this.metaOf(rowId);
     this.editForm.reset({
-      subject: c.subject || '',
+      subject: c.title || c.subject || '',
       status: c.status as ComplaintStatus,
-      priority: (m.priority || 'MEDIUM') as Priority,
-      category: m.category || '',
+      priority: (m.priority || c.priority || 'MEDIUM') as Priority,
+      category: m.category || c.category || '',
       assignedToId: (m.assignedToId ?? '') as any,
       resolutionNote: m.resolutionNote || ''
-    }, { emitEvent: false }); // NEW
+    }, { emitEvent: false });
 
     this.showForm = true;
     this.cdr.markForCheck();
@@ -740,37 +783,49 @@ export class ComplaintsOverviewComponent {
     this.cdr.markForCheck();
   }
 
-  saveEdit() {
+  async saveEdit() {
     if (this.editForm.invalid || this.editingId === null) {
       this.editForm.markAllAsTouched();
       return;
     }
     const v = this.editForm.getRawValue();
+    const complaintId = Number(this.editingId);
 
-    if (v.status) {
-      this.complaints.setStatus(this.editingId as any, v.status as ComplaintStatus);
+    try {
+      // Update status via admin API
+      if (v.status) {
+        await this.adminApi.updateComplaintStatus(complaintId, v.status as any).toPromise();
+      }
+      // Assign staff if selected
+      if (v.assignedToId) {
+        await this.adminApi.assignComplaint(complaintId, Number(v.assignedToId)).toPromise();
+      }
+
+      this.setMeta(this.editingId, {
+        priority: (v.priority || 'MEDIUM') as Priority,
+        category: (v.category || '').trim() || undefined,
+        assignedToId: v.assignedToId || undefined,
+        resolutionNote: (v.resolutionNote || '').trim() || undefined,
+        updatedAt: new Date().toISOString()
+      });
+
+      this.snack.open('Complaint updated', 'OK', { duration: 2500 });
+      this.cancelEdit();
+      await this.fetchData();
+    } catch (err: any) {
+      this.snack.open(err?.error?.message || 'Update failed', 'OK', { duration: 3000 });
     }
-
-    this.setMeta(this.editingId, {
-      priority: (v.priority || 'MEDIUM') as Priority,
-      category: (v.category || '').trim() || undefined,
-      assignedToId: v.assignedToId || undefined,
-      resolutionNote: (v.resolutionNote || '').trim() || undefined,
-      updatedAt: new Date().toISOString()
-    });
-
-    this.rows = this.complaints.list();
-    this.dataSource.data = this.rows;
-    this.applyFilters();
-    this.cancelEdit();
   }
 
-  setStatus(c: Complaint, status: ComplaintStatus) {
-    this.complaints.setStatus(c.id, status);
-    this.setMeta(c.id, { updatedAt: new Date().toISOString() });
-    this.rows = this.complaints.list();
-    this.dataSource.data = this.rows;
-    this.applyFilters();
+  async setStatus(c: any, status: ComplaintStatus) {
+    const rowId = c.referenceNumber ?? c.id;
+    try {
+      await this.adminApi.updateComplaintStatus(Number(rowId), status as any).toPromise();
+      this.setMeta(rowId, { updatedAt: new Date().toISOString() });
+      await this.fetchData();
+    } catch (err: any) {
+      this.snack.open(err?.error?.message || 'Status update failed', 'OK', { duration: 3000 });
+    }
   }
 
   // ---------- utils ----------

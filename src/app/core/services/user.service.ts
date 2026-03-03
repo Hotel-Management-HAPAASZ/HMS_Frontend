@@ -11,7 +11,7 @@ import type { User } from '../models/models';
 const API_BASE = 'http://localhost:8080/api'; // change if needed
 const USERS_KEY = 'app_users_v1';
 const API_HEALTH_URL = `${API_BASE}/health`; // change to an endpoint you have
-const API_USERS_URL = `${API_BASE}/users`;    // ✅ plural & consistent
+const API_USERS_URL = `${API_BASE}/user/users`;    // ✅ matches backend /api/user/users
 const API_AVAILABILITY_CACHE_KEY = 'api_available_v1';
 
 export interface UpdateUserRequest {

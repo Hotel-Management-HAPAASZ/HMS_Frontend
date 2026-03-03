@@ -1,9 +1,9 @@
-import { Component, computed } from '@angular/core';
+import { Component, computed, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
 import { AuthService } from '../../../core/services/auth.service';
-import { ComplaintService } from '../../../core/services/complaint.service';
+import { NewComplaintService } from '../../../core/services/new-complaint.service';
 
 // If your Complaint type is exported somewhere and already used in your app,
 // you can import it and replace `any` with `Complaint`.
@@ -381,57 +381,47 @@ import { ComplaintService } from '../../../core/services/complaint.service';
     .footer{ text-align:center; margin-top: 14px; font-size: 12px; color: rgba(15,23,42,0.5); }
   `]
 })
-export class StaffDashboardComponent {
-  constructor(private auth: AuthService, private complaintService: ComplaintService) {}
+export class StaffDashboardComponent implements OnInit {
+  constructor(private auth: AuthService, private complaintService: NewComplaintService) {}
 
-  // ✅ validation: handles empty/undefined user names
   name = computed(() => this.auth.user()?.fullName?.trim() || 'Staff');
 
-  /**
-   * ✅ validation: always returns an array.
-   * Your existing code uses complaints.list() directly.
-   * If list() returns null/undefined, this avoids runtime crashes.
-   */
-  all = computed(() => {
-    const list = this.complaintService.list?.();
-    return Array.isArray(list) ? list : [];
-  });
+  // Reactive signals for counts
+  private counts = signal({ open: 0, inProgress: 0, resolved: 0, total: 0 });
+  private recentOpenList = signal<any[]>([]);
 
-  // ✅ status safe accessor
-  private statusOf(c: any): string {
-    return (c?.status ?? '').toString();
+  totalCount     = computed(() => this.counts().total);
+  openCount      = computed(() => this.counts().open);
+  inProgressCount = computed(() => this.counts().inProgress);
+  resolvedCount  = computed(() => this.counts().resolved);
+  recentOpen     = computed(() => this.recentOpenList());
+
+  ngOnInit(): void {
+    this.loadCounts();
   }
 
-  totalCount = computed(() => this.all().length);
+  private async loadCounts() {
+    try {
+      // Load ALL complaints to get total count
+      const all = await this.complaintService.getAllComplaints({ page: 0, size: 1 });
+      const open = await this.complaintService.getAllComplaints({ page: 0, size: 5, status: 'OPEN' });
+      const inProg = await this.complaintService.getAllComplaints({ page: 0, size: 1, status: 'IN_PROGRESS' });
+      const resolved = await this.complaintService.getAllComplaints({ page: 0, size: 1, status: 'RESOLVED' });
 
-  openCount = computed(() =>
-    this.all().filter(c => this.statusOf(c) === 'OPEN').length
-  );
+      this.counts.set({
+        total: all.totalElements,
+        open: open.totalElements,
+        inProgress: inProg.totalElements,
+        resolved: resolved.totalElements
+      });
+      this.recentOpenList.set(open.content || []);
+    } catch (err) {
+      console.error('[StaffDashboard] loadCounts failed', err);
+    }
+  }
 
-  inProgressCount = computed(() =>
-    this.all().filter(c => this.statusOf(c) === 'IN_PROGRESS').length
-  );
-
-  resolvedCount = computed(() =>
-    this.all().filter(c => ['RESOLVED', 'CLOSED'].includes(this.statusOf(c))).length
-  );
-
-  /**
-   * ✅ For queue preview – shows OPEN items only
-   * Note: we avoid referencing properties that may not exist on Complaint (like title).
-   */
-  recentOpen = computed(() =>
-    this.all()
-      .filter(c => this.statusOf(c) === 'OPEN')
-      .slice(0, 3)
-  );
-
-  /**
-   * ✅ Safe label generator that does NOT depend on any specific Complaint fields.
-   * Uses id if available; otherwise a generic label.
-   */
   complaintLabel(c: any): string {
-    const id = c?.id ?? c?.complaintId ?? c?.ticketId ?? null;
+    const id = c?.referenceNumber ?? c?.id ?? c?.complaintId ?? null;
     if (id !== null && id !== undefined && `${id}`.trim() !== '') {
       return `Complaint #${id}`;
     }

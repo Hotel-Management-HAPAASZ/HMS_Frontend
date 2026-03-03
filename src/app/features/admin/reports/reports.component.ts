@@ -1,4 +1,4 @@
-import { Component, inject, computed } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 import {
@@ -20,7 +20,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTableModule } from '@angular/material/table';
 
-import { BookingService } from '../../../core/services/booking.service';
+import { BookingApiService } from '../../../core/services/booking-api.service';
 
 /** Cross-field validator: fromDate must be <= toDate */
 function dateRangeValidator(group: AbstractControl): ValidationErrors | null {
@@ -56,7 +56,7 @@ type PaidFilter = '' | 'PAID' | 'UNPAID' | 'REFUNDED';
         <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
           <div>
             <div class="kicker">Admin Portal</div>
-            <h2 class="fw-bold mb-1 title">Revenue & Reports</h2>
+            <h2 class="fw-bold mb-1 title">Revenue &amp; Reports</h2>
             <p class="text-muted mb-0">
               Monitor paid revenue and booking trends in a selected date range.
             </p>
@@ -338,13 +338,9 @@ type PaidFilter = '' | 'PAID' | 'UNPAID' | 'REFUNDED';
       display:flex; flex-direction:column; align-items:center; text-align:center;
       color: rgba(15,23,42,0.7);
     }
-    .stat-icon.indigo{ background: rgba(79,70,229,0.10); border-color: rgba(79,70,229,0.18); }
   `]
 })
-export class ReportsComponent {
-  private fb = inject(NonNullableFormBuilder);
-  private bookingsSvc = inject(BookingService);
-
+export class ReportsComponent implements OnInit {
   cols: string[] = ['id', 'customer', 'dates', 'status', 'amount'];
 
   filterForm: FormGroup<{
@@ -353,187 +349,95 @@ export class ReportsComponent {
     paidFilter: FormControl<PaidFilter>;
   }>;
 
-  // backing arrays
   all: any[] = [];
   filtered: any[] = [];
 
-  kpis = {
-    revenue: '₹0',
-    paidCount: 0,
-    avgBookingValue: '₹0',
-    refundedCount: 0
-  };
-
+  kpis = { revenue: '₹0', paidCount: 0, avgBookingValue: '₹0', refundedCount: 0 };
   periodLabel = '';
 
-  constructor() {
-    // default last 30 days
+  constructor(
+    private fb: NonNullableFormBuilder,
+    private bookingsSvc: BookingApiService
+  ) {
     const now = new Date();
     const from = new Date(now);
     from.setDate(now.getDate() - 30);
-
     this.filterForm = this.fb.group(
       {
         fromDate: this.fb.control(from, { validators: [Validators.required] }),
-        toDate: this.fb.control(now, { validators: [Validators.required] }),
-        paidFilter: this.fb.control<PaidFilter>('') // all
+        toDate:   this.fb.control(now,  { validators: [Validators.required] }),
+        paidFilter: this.fb.control<PaidFilter>('')
       },
       { validators: [dateRangeValidator] }
     );
-
-    this.load();
-    this.apply();
   }
 
-  // ---- actions ----
-  apply() {
+  ngOnInit(): void {
+    this.bookingsSvc.adminHistory().subscribe({
+      next: (rows: any) => { this.all = Array.isArray(rows) ? rows : []; this.computeFiltered(); },
+      error: ()         => { this.all = []; this.computeFiltered(); }
+    });
+  }
+
+  apply() { if (this.filterForm.valid) this.computeFiltered(); }
+
+  private computeFiltered() {
     if (this.filterForm.invalid) return;
     const f = this.filterForm.getRawValue();
+    const from = this.dayStart(f.fromDate);
+    const to   = this.dayEnd(f.toDate);
 
-    const from = this.startOfDay(f.fromDate);
-    const to = this.endOfDay(f.toDate);
-
-    // data slice
-    const byDate = this.all.filter(b => {
-      const basis = this.primaryDate(b) || this.createdDate(b);
-      if (!basis) return true; // keep if no date
-      return basis >= from && basis <= to;
+    const byDate = this.all.filter((b: any) => {
+      const d = this.toDate(b?.checkInDate ?? b?.checkIn ?? b?.createdAt);
+      return !d || (d >= from && d <= to);
     });
 
-    // status slice
-    let byStatus = byDate;
-    if (f.paidFilter === 'PAID') {
-      byStatus = byStatus.filter(b => this.statusOf(b) === 'PAID');
-    } else if (f.paidFilter === 'UNPAID') {
-      byStatus = byStatus.filter(b => this.statusOf(b) !== 'PAID');
-    } else if (f.paidFilter === 'REFUNDED') {
-      byStatus = byStatus.filter(b => this.statusOf(b) === 'REFUNDED');
-    }
+    let slice = byDate;
+    if (f.paidFilter === 'PAID')    slice = slice.filter((b: any) => this.sOf(b) === 'PAID');
+    else if (f.paidFilter === 'UNPAID')   slice = slice.filter((b: any) => this.sOf(b) !== 'PAID');
+    else if (f.paidFilter === 'REFUNDED') slice = slice.filter((b: any) => this.sOf(b) === 'REFUNDED');
 
-    this.filtered = byStatus.sort((a, b) => {
-      const da = this.primaryDate(a) || this.createdDate(a) || new Date(0);
-      const db = this.primaryDate(b) || this.createdDate(b) || new Date(0);
-      return db.getTime() - da.getTime();
-    });
+    this.filtered = slice.sort((a: any, b: any) =>
+      (this.toDate(b?.checkInDate ?? b?.createdAt)?.getTime() ?? 0) -
+      (this.toDate(a?.checkInDate ?? a?.createdAt)?.getTime() ?? 0)
+    );
 
-    // KPIs
-    const paidOnly = this.filtered.filter(b => this.statusOf(b) === 'PAID');
-    const refundedOnly = this.filtered.filter(b => this.statusOf(b) === 'REFUNDED');
-
-    const revenueNumber = paidOnly.reduce((sum, b) => sum + this.amountOf(b), 0);
-    const avg = paidOnly.length ? Math.round(revenueNumber / paidOnly.length) : 0;
+    const paid     = this.filtered.filter((b: any) => this.sOf(b) === 'PAID');
+    const refunded = this.filtered.filter((b: any) => this.sOf(b) === 'REFUNDED');
+    const rev      = paid.reduce((s: number, b: any) => s + this.amountOf(b), 0);
+    const avg      = paid.length ? Math.round(rev / paid.length) : 0;
 
     this.kpis = {
-      revenue: this.formatINR(revenueNumber),
-      paidCount: paidOnly.length,
-      avgBookingValue: this.formatINR(avg),
-      refundedCount: refundedOnly.length
+      revenue: this.inr(rev), paidCount: paid.length,
+      avgBookingValue: this.inr(avg), refundedCount: refunded.length
     };
-
-    this.periodLabel = `${this.short(from)} – ${this.short(to)}`;
+    this.periodLabel = `${this.fmt(from)} – ${this.fmt(to)}`;
   }
 
-  // ---- data load ----
-  private load() {
-    this.all = this.safeArray(this.bookingsSvc.list?.() ?? []);
-  }
-
-  // ---- helpers: display / data extraction ----
-  statusOf(b: any): string {
-    return String(b?.status ?? '').toUpperCase();
-  }
-
-  amountOf(b: any): number {
-    const v = b?.totalAmount ?? b?.amount ?? b?.total ?? b?.price ?? b?.billAmount;
-    const n = typeof v === 'number' ? v : Number(v);
-    return Number.isFinite(n) ? n : 0;
-  }
-
-  displayId(b: any): string {
-    return String(b?.id ?? b?._id ?? b?.bookingId ?? '—');
-    // You can add other keys used in your project if needed
-  }
-
-  displayCustomer(b: any): string {
+  statusOf(b: any)       { return this.sOf(b); }
+  amountOf(b: any)       { const v = b?.totalAmount ?? b?.amount ?? 0; return typeof v === 'number' ? v : Number(v) || 0; }
+  displayId(b: any)      { return String(b?.id ?? b?.bookingId ?? '—'); }
+  displayCustomer(b: any) {
     const u = b?.user ?? b?.customer;
-    const full = u?.fullName ?? b?.customerName ?? '';
-    const email = u?.email ?? b?.email ?? '';
-    if (full) return full;
-    if (email) return email;
-    return 'Customer';
+    return u?.fullName ?? b?.customerName ?? u?.email ?? b?.email ?? 'Customer';
   }
-
-  displayDates(b: any): string {
-    const ci = this.primaryDate(b);
-    const co = this.toDate(b?.checkOutDate) ?? this.toDate(b?.checkOut);
+  displayDates(b: any) {
+    const ci = this.toDate(b?.checkInDate ?? b?.checkIn);
+    const co = this.toDate(b?.checkOutDate ?? b?.checkOut);
     if (!ci && !co) return '—';
-    if (ci && !co) return this.short(ci);
-    if (!ci && co) return this.short(co);
-    return `${this.short(ci!)} → ${this.short(co!)}`;
+    if (ci && !co) return this.fmt(ci);
+    if (!ci && co) return this.fmt(co);
+    return `${this.fmt(ci!)} → ${this.fmt(co!)}`;
   }
 
-  primaryDate(b: any): Date | undefined {
-    // Prefer check-in date for basis if present
-    return this.toDate(b?.checkInDate) ?? this.toDate(b?.checkIn);
-  }
-
-  createdDate(b: any): Date | undefined {
-    return this.toDate(b?.createdAt) ?? this.toDate(b?.bookingDate);
-  }
-
-  // ---- date/format utils ----
-  private short(d: Date): string {
-    try {
-      return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(d);
-    } catch {
-      return d.toISOString().slice(0, 10);
-    }
-  }
-
-  private startOfDay(d: Date): Date {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-  }
-
-  private endOfDay(d: Date): Date {
-    const x = new Date(d);
-    x.setHours(23, 59, 59, 999);
-    return x;
-  }
-
+  private sOf(b: any)       { return String(b?.status ?? '').toUpperCase(); }
+  private fmt(d: Date)      { try { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(d); } catch { return d.toISOString().slice(0,10); } }
+  private dayStart(d: Date) { const x = new Date(d); x.setHours(0,0,0,0); return x; }
+  private dayEnd(d: Date)   { const x = new Date(d); x.setHours(23,59,59,999); return x; }
+  private inr(v: number)    { try { return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v); } catch { return `₹${Math.round(v)}`; } }
   private toDate(v: any): Date | undefined {
-    if (v === null || v === undefined || v === '') return undefined;
+    if (!v) return undefined;
     if (v instanceof Date) return isNaN(v.getTime()) ? undefined : v;
-
-    if (typeof v === 'number') {
-      const d = new Date(v);
-      return isNaN(d.getTime()) ? undefined : d;
-    }
-    if (typeof v === 'string') {
-      const maybeNum = Number(v);
-      if (Number.isFinite(maybeNum) && v.trim() !== '') {
-        const d = new Date(maybeNum);
-        if (!isNaN(d.getTime())) return d;
-      }
-      const d = new Date(v);
-      return isNaN(d.getTime()) ? undefined : d;
-    }
-    const d = new Date(v);
-    return isNaN(d.getTime()) ? undefined : d;
+    const d = new Date(v); return isNaN(d.getTime()) ? undefined : d;
   }
-
-  private formatINR(value: number): string {
-    try {
-      return new Intl.NumberFormat('en-IN', {
-        style: 'currency',
-        currency: 'INR',
-        maximumFractionDigits: 0
-      }).format(value);
-    } catch {
-      return `₹${Math.round(value)}`;
-    }
-  }
-
-  private safeArray(v: any): any[] { return Array.isArray(v) ? v : []; }
 }

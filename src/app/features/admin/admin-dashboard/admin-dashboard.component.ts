@@ -1,4 +1,4 @@
-import { Component, computed } from '@angular/core';
+import { Component, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
@@ -20,10 +20,7 @@ import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatNativeDateModule } from '@angular/material/core';
 
 import { AuthService } from '../../../core/services/auth.service';
-import { RoomService } from '../../../core/services/room.service';
-import { BookingService } from '../../../core/services/booking.service';
-import { ComplaintService } from '../../../core/services/complaint.service';
-import { UserService } from '../../../core/services/user.service';
+import { AdminApiService, AdminDashboardResponse } from '../../../core/services/admin-api.service';
 
 type BookingStatus = '' | 'CONFIRMED' | 'PENDING' | 'CANCELLED';
 
@@ -433,14 +430,11 @@ function dateRangeValidator(group: AbstractControl): ValidationErrors | null {
     }
   `]
 })
-export class AdminDashboardComponent {
+export class AdminDashboardComponent implements OnInit {
   constructor(
     private auth: AuthService,
     private fb: NonNullableFormBuilder,
-    private roomsService: RoomService,
-    private bookingsService: BookingService,
-    private complaintsService: ComplaintService,
-    private usersService: UserService
+    private adminApi: AdminApiService
   ) {
     // default filter: last 30 days
     const now = new Date();
@@ -455,19 +449,23 @@ export class AdminDashboardComponent {
       },
       { validators: [dateRangeValidator] }
     );
+  }
 
-    this.recomputeKPIs();
+  ngOnInit(): void {
+    this.loadDashboard();
   }
 
   name = computed(() => this.auth.user()?.fullName ?? 'Admin');
   todayLabel = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date());
 
-  // ✅ Strong typed, non-nullable controls (fixes your TS2322 errors)
   filterForm: FormGroup<{
     fromDate: FormControl<Date>;
     toDate: FormControl<Date>;
     status: FormControl<BookingStatus>;
   }>;
+
+  loading = false;
+  error = '';
 
   kpi = {
     activeRooms: 0,
@@ -482,149 +480,31 @@ export class AdminDashboardComponent {
 
   applyFilters() {
     if (this.filterForm.invalid) return;
-    this.recomputeKPIs();
+    this.loadDashboard();
   }
 
-  private recomputeKPIs() {
-    const rooms = this.safeArray(this.roomsService.list?.() ?? []);
-    const bookings = this.safeArray(this.bookingsService.list?.() ?? []);
-    const complaints = this.safeArray(this.complaintsService.list?.() ?? []);
-    const users = this.safeArray(this.usersService.list?.() ?? []);
-
-    // ✅ No null types here (NonNullableFormBuilder)
-    const fromDate = this.filterForm.controls.fromDate.value;
-    const toDate = this.filterForm.controls.toDate.value;
-    const status = this.filterForm.controls.status.value; // '' | CONFIRMED | PENDING | CANCELLED
-
-    const activeRooms = rooms.filter((r: any) => !!r?.active).length;
-
-    // Filter bookings by selected date range and optional status
-    const filteredBookings = bookings.filter((b: any) => {
-      const s = String(b?.status ?? '').toUpperCase();
-      if (status && s !== status) return false;
-
-      // Prefer checkInDate for filtering (since your booking includes it)
-      const checkIn = this.toDate(b?.checkInDate) ?? this.toDate(b?.checkIn);
-      const created = this.toDate(b?.createdAt) ?? this.toDate(b?.bookingDate);
-
-      const basis = checkIn ?? created;
-      if (!basis) return true; // safe fallback
-
-      return basis >= this.startOfDay(fromDate) && basis <= this.endOfDay(toDate);
+  private loadDashboard() {
+    this.loading = true;
+    this.error = '';
+    this.adminApi.getDashboard().subscribe({
+      next: (data: AdminDashboardResponse) => {
+        this.kpi = {
+          activeRooms:    data.activeRooms      ?? data.totalRooms       ?? 0,
+          totalBookings:  data.totalBookings    ?? data.confirmedBookings ?? 0,
+          openComplaints: data.openComplaints   ?? 0,
+          occupancyRate:  data.occupancyRate    ?? 0,
+          customers:      data.totalCustomers   ?? 0,
+          staff:          data.totalStaff       ?? 0,
+          todayCheckins:  data.todayCheckins    ?? 0,
+          revenue:        this.formatINR(data.revenue ?? 0)
+        };
+        this.loading = false;
+      },
+      error: (err: any) => {
+        this.error = err?.error?.message ?? err?.message ?? 'Failed to load dashboard';
+        this.loading = false;
+      }
     });
-
-    const totalBookings = filteredBookings.length;
-
-    // Open complaints (based on common statuses; adjust if your statuses differ)
-    const openComplaints = complaints.filter((c: any) => {
-      const s = String(c?.status ?? '').toUpperCase();
-      return s ? ['OPEN', 'PENDING', 'IN_PROGRESS'].includes(s) : true;
-    }).length;
-
-    // Users breakdown (uses role/userRole if present; safe fallback)
-    const customers = users.filter((u: any) => {
-      const r = String(u?.role ?? u?.userRole ?? '').toUpperCase();
-      return r ? ['CUSTOMER', 'GUEST'].includes(r) : true;
-    }).length;
-
-    const staff = users.filter((u: any) => {
-      const r = String(u?.role ?? u?.userRole ?? '').toUpperCase();
-      return r ? ['STAFF', 'EMPLOYEE'].includes(r) : false;
-    }).length;
-
-    // Today check-ins: status CONFIRMED/PENDING and checkInDate is today
-    const today = new Date();
-    const todayCheckins = bookings.filter((b: any) => {
-      const s = String(b?.status ?? '').toUpperCase();
-      if (!['CONFIRMED', 'PENDING'].includes(s)) return false;
-
-      const ci = this.toDate(b?.checkInDate) ?? this.toDate(b?.checkIn);
-      return ci ? this.isSameDay(ci, today) : false;
-    }).length;
-
-    // Occupancy: bookings active today (CONFIRMED/PENDING and today between checkInDate and checkOutDate)
-    const occupiedRoomIds = new Set<any>();
-    for (const b of bookings) {
-      const s = String(b?.status ?? '').toUpperCase();
-      if (!['CONFIRMED', 'PENDING'].includes(s)) continue;
-
-      const ci = this.toDate(b?.checkInDate) ?? this.toDate(b?.checkIn);
-      const co = this.toDate(b?.checkOutDate) ?? this.toDate(b?.checkOut);
-      if (!ci || !co) continue;
-
-      if (today >= this.startOfDay(ci) && today <= this.endOfDay(co)) {
-        const roomId = b?.roomId ?? b?.room?.id ?? b?.room?.roomId;
-        if (roomId !== undefined && roomId !== null) occupiedRoomIds.add(roomId);
-      }
-    }
-
-    const occupancyRate = activeRooms > 0
-      ? Math.round((occupiedRoomIds.size / activeRooms) * 100)
-      : 0;
-
-    // Revenue (optional): sum booking totals if field exists
-    const revenueNumber = filteredBookings.reduce((sum: number, b: any) => {
-      const v = b?.totalAmount ?? b?.amount ?? b?.total ?? b?.price ?? b?.billAmount;
-      const n = typeof v === 'number' ? v : Number(v);
-      return Number.isFinite(n) ? sum + n : sum;
-    }, 0);
-
-    this.kpi = {
-      activeRooms,
-      totalBookings,
-      openComplaints,
-      occupancyRate,
-      customers,
-      staff,
-      todayCheckins,
-      revenue: this.formatINR(revenueNumber)
-    };
-  }
-
-  // ---------- helpers ----------
-  private safeArray(v: any): any[] { return Array.isArray(v) ? v : []; }
-
-  /** Parses ISO string / Date / timestamp safely into Date */
-  private toDate(v: any): Date | undefined {
-    if (v === null || v === undefined || v === '') return undefined;
-    if (v instanceof Date) return isNaN(v.getTime()) ? undefined : v;
-
-    // timestamp number or numeric string
-    if (typeof v === 'number') {
-      const d = new Date(v);
-      return isNaN(d.getTime()) ? undefined : d;
-    }
-    if (typeof v === 'string') {
-      // If numeric string, treat as timestamp
-      const maybeNum = Number(v);
-      if (Number.isFinite(maybeNum) && v.trim() !== '') {
-        const d = new Date(maybeNum);
-        if (!isNaN(d.getTime())) return d;
-      }
-      const d = new Date(v);
-      return isNaN(d.getTime()) ? undefined : d;
-    }
-
-    const d = new Date(v);
-    return isNaN(d.getTime()) ? undefined : d;
-  }
-
-  private startOfDay(d: Date): Date {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-  }
-
-  private endOfDay(d: Date): Date {
-    const x = new Date(d);
-    x.setHours(23, 59, 59, 999);
-    return x;
-  }
-
-  private isSameDay(a: Date, b: Date): boolean {
-    return a.getFullYear() === b.getFullYear()
-      && a.getMonth() === b.getMonth()
-      && a.getDate() === b.getDate();
   }
 
   private formatINR(value: number): string {

@@ -13,7 +13,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatIconModule } from '@angular/material/icon';
 import { MatDividerModule } from '@angular/material/divider';
 
-import { Subscription } from 'rxjs';
+
 
 @Component({
   standalone: true,
@@ -51,13 +51,13 @@ import { Subscription } from 'rxjs';
         <mat-divider class="mb-3"></mat-divider>
 
         <!-- NEW: Success banner with Complaint ID -->
-        <div *ngIf="createdId" class="success-banner mb-3">
+        <div *ngIf="createdReference" class="success-banner mb-3">
           <div class="d-flex align-items-center justify-content-between gap-2">
             <div class="d-flex align-items-center gap-2">
               <mat-icon>confirmation_number</mat-icon>
               <div>
                 <div class="fw-semibold">Complaint created successfully</div>
-                <div class="small text-muted">ID: <code>{{ createdId }}</code></div>
+                <div class="small text-muted">Ref: <code>{{ createdReference }}</code></div>
               </div>
             </div>
             <div class="d-flex align-items-center gap-2">
@@ -101,44 +101,18 @@ import { Subscription } from 'rxjs';
           <div class="row g-3">
             <div class="col-12 col-md-6">
               <mat-form-field appearance="outline" class="w-100">
-                <mat-label>Preferred Contact Method</mat-label>
-                <mat-select formControlName="contactMethod" required>
-                  <mat-option value="Email">Email</mat-option>
-                  <mat-option value="Phone">Phone</mat-option>
+                <mat-label>Contact Preference</mat-label>
+                <mat-select formControlName="contactPreference" required>
+                  <mat-option value="EMAIL">Email</mat-option>
+                  <mat-option value="CALL">Call</mat-option>
                 </mat-select>
-                <mat-error *ngIf="form.controls.contactMethod.touched && form.controls.contactMethod.invalid">
-                  Please choose a contact method
-                </mat-error>
-              </mat-form-field>
-            </div>
-
-            <div class="col-12 col-md-6">
-              <!-- Conditionally required -->
-              <mat-form-field appearance="outline" class="w-100" *ngIf="form.value.contactMethod === 'Email'">
-                <mat-label>Email</mat-label>
-                <input matInput formControlName="email" placeholder="name@example.com">
-                <mat-error *ngIf="form.controls.email.touched && form.controls.email.hasError('required')">
-                  Email is required
-                </mat-error>
-                <mat-error *ngIf="form.controls.email.touched && form.controls.email.hasError('email')">
-                  Enter a valid email
-                </mat-error>
-              </mat-form-field>
-
-              <mat-form-field appearance="outline" class="w-100" *ngIf="form.value.contactMethod === 'Phone'">
-                <mat-label>Phone</mat-label>
-                <input matInput formControlName="phone" placeholder="10-digit number">
-                <mat-error *ngIf="form.controls.phone.touched && form.controls.phone.hasError('required')">
-                  Phone is required
-                </mat-error>
-                <mat-error *ngIf="form.controls.phone.touched && form.controls.phone.hasError('pattern')">
-                  Enter a valid phone number (10 digits)
+                <mat-error *ngIf="form.controls.contactPreference.touched && form.controls.contactPreference.invalid">
+                  Please choose a contact preference
                 </mat-error>
               </mat-form-field>
             </div>
           </div>
 
-          <!-- Booking ID + Subject -->
           <div class="row g-3">
             <div class="col-12 col-md-6">
               <mat-form-field appearance="outline" class="w-100">
@@ -155,32 +129,35 @@ import { Subscription } from 'rxjs';
 
             <div class="col-12 col-md-6">
               <mat-form-field appearance="outline" class="w-100">
-                <mat-label>Subject</mat-label>
-                <input matInput formControlName="subject" maxlength="80" placeholder="Short summary">
-                <mat-hint align="end">{{ form.controls.subject.value?.length || 0 }}/80</mat-hint>
-                <mat-error *ngIf="form.controls.subject.touched && form.controls.subject.hasError('required')">
-                  Subject is required
+                <mat-label>Title</mat-label>
+                <input matInput formControlName="title" minlength="10" maxlength="100" placeholder="Short summary">
+                <mat-hint align="end">{{ form.controls.title.value?.length || 0 }}/100</mat-hint>
+                <mat-error *ngIf="form.controls.title.touched && form.controls.title.hasError('required')">
+                  Title is required
                 </mat-error>
-                <mat-error *ngIf="form.controls.subject.touched && form.controls.subject.hasError('minlength')">
-                  Subject must be at least 5 characters
+                <mat-error *ngIf="form.controls.title.touched && form.controls.title.hasError('minlength')">
+                  Title must be at least 10 characters
                 </mat-error>
               </mat-form-field>
             </div>
           </div>
 
+
           <!-- Description -->
           <mat-form-field appearance="outline" class="w-100">
             <mat-label>Description</mat-label>
-            <textarea matInput rows="5" formControlName="message"
+            <textarea matInput rows="5" formControlName="description"
               placeholder="Explain what happened, when, and any relevant details..."
-              maxlength="1000"></textarea>
-            <mat-hint align="end">{{ form.controls.message.value?.length || 0 }}/1000</mat-hint>
-            <mat-error *ngIf="form.controls.message.touched && form.controls.message.hasError('required')">
+              minlength="20" maxlength="500"></textarea>
+            <mat-hint align="end">{{ form.controls.description.value?.length || 0 }}/500</mat-hint>
+            <mat-error *ngIf="form.controls.description.touched && form.controls.description.hasError('required')">
               Description is required
             </mat-error>
-            <mat-error *ngIf="form.controls.message.touched && form.controls.message.hasError('minlength')">
+            <mat-error *ngIf="form.controls.description.touched && form.controls.description.hasError('minlength')">
               Please enter at least 20 characters
             </mat-error>
+            <!-- Show backend validation errors here if mapped -->
+            <mat-error *ngIf="serverErrors['description']">{{ serverErrors['description'] }}</mat-error>
           </mat-form-field>
 
           <!-- Actions -->
@@ -244,11 +221,13 @@ import { Subscription } from 'rxjs';
     }
   `]
 })
-export class RegisterComplaintComponent implements OnDestroy {
+export class RegisterComplaintComponent {
   submitting = false;
 
   // NEW: show ID banner
-  createdId: string | null = null;
+  // NEW: show ref banner
+  createdReference: string | null = null;
+  serverErrors: Record<string, string> = {};
 
   categories = [
     { label: 'Housekeeping', value: 'ROOM_ISSUE' },
@@ -258,78 +237,43 @@ export class RegisterComplaintComponent implements OnDestroy {
     { label: 'Reservation', value: 'SERVICE_ISSUE' },
     { label: 'Other', value: 'OTHER' }
   ] as const;
-  priorities = ['Low', 'Medium', 'High', 'Urgent'];
+  priorities = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 
-  private sub?: Subscription;
+
 
   form = this.fb.group({
     category: ['', Validators.required],
     priority: ['', Validators.required],
-    contactMethod: ['Email', Validators.required],
+    contactPreference: ['EMAIL', Validators.required],
 
-    email: ['', [Validators.email]],
-    phone: [''],
+    bookingId: [null as unknown as number], // Now nullable, don't strictly require
 
-    bookingId: [null as unknown as number, [Validators.required, Validators.pattern(/^\d+$/)]],
-
-    subject: ['', [Validators.required, Validators.minLength(5), Validators.maxLength(80)]],
-    message: ['', [Validators.required, Validators.minLength(20), Validators.maxLength(1000)]]
+    title: ['', [Validators.required, Validators.minLength(10), Validators.maxLength(100)]],
+    description: ['', [Validators.required, Validators.minLength(20), Validators.maxLength(500)]]
   });
 
-  constructor(
+   constructor(
     private fb: FormBuilder,
     private auth: AuthService,
     private complaints: NewComplaintService,
     private snack: MatSnackBar
-  ) {
-    this.applyContactValidators(this.form.value.contactMethod || 'Email');
-    this.sub = this.form.controls.contactMethod.valueChanges.subscribe(method => {
-      this.applyContactValidators(method || 'Email');
-    });
-  }
-
-  ngOnDestroy(): void {
-    this.sub?.unsubscribe();
-  }
-
-  private applyContactValidators(method: 'Email' | 'Phone' | string) {
-    const emailCtrl = this.form.controls.email;
-    const phoneCtrl = this.form.controls.phone;
-
-    if (method === 'Phone') {
-      phoneCtrl.setValidators([Validators.required, Validators.pattern(/^[0-9]{10}$/)]);
-      emailCtrl.setValidators([Validators.email]);
-      emailCtrl.setValue(emailCtrl.value || '');
-      emailCtrl.updateValueAndValidity({ emitEvent: false });
-    } else {
-      emailCtrl.setValidators([Validators.required, Validators.email]);
-      phoneCtrl.setValidators([]);
-      phoneCtrl.setValue(phoneCtrl.value || '');
-      phoneCtrl.updateValueAndValidity({ emitEvent: false });
-    }
-
-    emailCtrl.updateValueAndValidity({ emitEvent: false });
-    phoneCtrl.updateValueAndValidity({ emitEvent: false });
-  }
+  ) {}
 
   reset() {
     this.form.reset({
       category: '',
       priority: '',
-      contactMethod: 'Email',
-      email: '',
-      phone: '',
+      contactPreference: 'EMAIL',
       bookingId: null,
-      subject: '',
-      message: ''
+      title: '',
+      description: ''
     });
-    this.applyContactValidators('Email');
   }
 
   // NEW: copy to clipboard
   copyId() {
-    if (!this.createdId) return;
-    navigator.clipboard?.writeText(this.createdId).then(() => {
+    if (!this.createdReference) return;
+    navigator.clipboard?.writeText(this.createdReference).then(() => {
       this.snack.open('Complaint ID copied', 'OK', { duration: 2000 });
     }).catch(() => {});
   }
@@ -358,48 +302,37 @@ export class RegisterComplaintComponent implements OnDestroy {
 
     const v = this.form.value;
 
-    // Build subject and message with meta-info
-    const subject = `[${v.category} | ${v.priority}] ${v.subject}`;
-    const meta =
-`Category: ${v.category}
-Priority: ${v.priority}
-Contact Method: ${v.contactMethod}
-Email: ${v.email || '—'}
-Phone: ${v.phone || '—'}
-Booking ID: ${v.bookingId}
-
---- Details ---
-`;
-
     try {
-      // If you want to store only the message (no meta), replace (meta + v.message) with just v.message
       const created = await this.complaints.create(
         Number(u.id),
-        subject,
-        meta + v.message,
         {
-          category: v.category!,
-          priority: v.priority! as any,
-          bookingId: Number(v.bookingId),
-          contactMethod: v.contactMethod as 'Email' | 'Phone',
-          email: v.contactMethod === 'Email' ? v.email || '' : undefined,
-          phone: v.contactMethod === 'Phone' ? v.phone || '' : undefined
+          category: v.category as 'ROOM_ISSUE' | 'SERVICE_ISSUE' | 'BILLING_ISSUE' | 'OTHER',
+          priority: v.priority as any,
+          bookingId: v.bookingId ? Number(v.bookingId) : undefined,
+          contactPreference: v.contactPreference as 'CALL' | 'EMAIL',
+          title: v.title!,
+          description: v.description!
         }
       );
 
       // NEW: show clear, copyable ID
-      this.createdId = created.id;
-      const ref = this.snack.open(`Complaint created • ID: ${created.id}`, 'Copy ID', { duration: 6000 });
+      this.createdReference = created.referenceNumber;
+      const ref = this.snack.open(`Complaint created • ID: ${created.referenceNumber}`, 'Copy ID', { duration: 6000 });
       ref.onAction().subscribe(() => this.copyId());
 
       this.reset();
 
       // Keep the banner for a while
-      setTimeout(() => { this.createdId = null; }, 120000); // auto-hide after 2 mins
+      setTimeout(() => { this.createdReference = null; }, 120000); // auto-hide after 2 mins
 
     } catch (err: any) {
-      const msg = err?.error?.message || err?.message || 'Failed to create complaint';
-      this.snack.open(msg, 'OK', { duration: 3000 });
+      if (err.status === 400 && err.error && typeof err.error === 'object') {
+         this.serverErrors = err.error; // Display inline
+         this.snack.open('Please fix the errors in the form.', 'OK', { duration: 3000 });
+      } else {
+         const msg = err?.error?.message || err?.message || 'Failed to create complaint';
+         this.snack.open(msg, 'OK', { duration: 3000 });
+      }
     } finally {
       this.submitting = false;
     }

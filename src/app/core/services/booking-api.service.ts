@@ -97,7 +97,7 @@ export class BookingApiService {
   }
 
   /** GET /api/bookings?query&status&from&to&page&pageSize&sortBy&sortDir */
- 
+
 list(params: {
   query?: string;
   status?: BookingStatus;
@@ -172,9 +172,9 @@ list(params: {
     return this.http.delete(`${this.baseUrl}/${bookingId}/cancel`, { responseType: 'text' });
   }
 
-  /** POST /api/bookings/{id}/modify */
+  /** PATCH /api/bookings/{id}/modify */
   modify(bookingId: number, patch: ModifyBookingRequest) {
-    return this.http.post<ModifyBookingResponse>(`${this.baseUrl}/${bookingId}/modify`, patch);
+    return this.http.patch<ModifyBookingResponse>(`${this.baseUrl}/${bookingId}/modify`, patch);
   }
 
   /** GET /api/bookings/user/{userId}/history */

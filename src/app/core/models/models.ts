@@ -40,15 +40,18 @@ export interface Booking {
 export type ComplaintStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 
 export interface Complaint {
-  id: string;
-  userId: string;
-  subject: string;
-  message: string;
+  referenceNumber: string;
+  bookingId?: number;
+  title: string;
+  description: string;
+  category: 'ROOM_ISSUE' | 'SERVICE_ISSUE' | 'BILLING_ISSUE' | 'OTHER';
+  contactPreference: 'CALL' | 'EMAIL';
   status: ComplaintStatus;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  expectedResolutionDate?: string;
   createdAt: string;
   updatedAt: string;
 }
-
 export interface Invoice {
   invoiceNo: string;
   bookingId: string;

@@ -20,24 +20,16 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
-import { ComplaintService } from '../../../core/services/complaint.service';
-import { UserService } from '../../../core/services/user.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { NewComplaintService } from '../../../core/services/new-complaint.service';
 import { Complaint, ComplaintStatus } from '../../../core/models/models';
+import { MatSnackBar } from '@angular/material/snack-bar';
 
 type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 type StatusFilter = '' | 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 type PriorityFilter = '' | Priority;
 
-/** Local metadata kept in-memory if backend does not support these fields */
-interface ComplaintMeta {
-  priority?: Priority;
-  category?: string;
-  assignedToId?: string | number;
-  resolutionNote?: string;
-  updatedAt?: string; // iso ts
-}
 
-/** Validator: resolution note is required when status is RESOLVED or CLOSED */
 function resolutionNoteValidator(): ValidatorFn {
   return (group: AbstractControl): ValidationErrors | null => {
     const status = group.get('status')?.value as ComplaintStatus | null;
@@ -137,16 +129,27 @@ function resolutionNoteValidator(): ValidatorFn {
               mat-stroked-button
               type="button"
               class="apply-btn w-100 w-md-auto"
+              (click)="applyFilters()"
+            >
+              Apply
+            </button>
+            <button
+              mat-stroked-button
+              type="button"
+              class="w-100 w-md-auto mt-2"
               (click)="clearFilters()"
-              [disabled]="!query && !statusFilter && !priorityFilter"
             >
               Clear
             </button>
           </div>
         </div>
 
-        <div class="text-muted small mt-2">
-          Showing {{ dataSource.filteredData.length }} of {{ rows.length }} complaints.
+        <div class="text-muted small mt-2 d-flex justify-content-between">
+          <span>Showing page {{ pageInfo.number + 1 }} of {{ pageInfo.totalPages }} (Total: {{ pageInfo.totalElements }})</span>
+          <div class="d-flex gap-2">
+            <button mat-stroked-button class="apply-btn p-0 px-2" (click)="prevPage()" [disabled]="pageInfo.first">Prev</button>
+            <button mat-stroked-button class="apply-btn p-0 px-2" (click)="nextPage()" [disabled]="pageInfo.last">Next</button>
+          </div>
         </div>
       </div>
 
@@ -179,15 +182,15 @@ function resolutionNoteValidator(): ValidatorFn {
             <form [formGroup]="editForm" (ngSubmit)="saveEdit()" class="row g-3">
               <div class="col-12 col-md-6">
                 <mat-form-field appearance="outline" class="w-100">
-                  <mat-label>Subject</mat-label>
+                  <mat-label>Title</mat-label>
                   <input matInput formControlName="subject" readonly />
                 </mat-form-field>
               </div>
 
               <div class="col-12 col-md-6">
                 <mat-form-field appearance="outline" class="w-100">
-                  <mat-label>Customer</mat-label>
-                  <input matInput [value]="displayCustomer(editingUserId)" readonly />
+                  <mat-label>Customer ID</mat-label>
+                  <input matInput [value]="editingUserId" readonly />
                 </mat-form-field>
               </div>
 
@@ -219,20 +222,8 @@ function resolutionNoteValidator(): ValidatorFn {
 
               <div class="col-12 col-md-3">
                 <mat-form-field appearance="outline" class="w-100">
-                  <mat-label>Category (optional)</mat-label>
-                  <input matInput formControlName="category" maxlength="48" placeholder="e.g., Housekeeping, Billing" />
-                </mat-form-field>
-              </div>
-
-              <div class="col-12 col-md-3">
-                <mat-form-field appearance="outline" class="w-100">
-                  <mat-label>Assign to (optional)</mat-label>
-                  <mat-select formControlName="assignedToId">
-                    <mat-option [value]="''">Unassigned</mat-option>
-                    <mat-option *ngFor="let s of staffOptions" [value]="getUserId(s)">
-                      {{ s.fullName || s.email || 'Staff' }}
-                    </mat-option>
-                  </mat-select>
+                  <mat-label>Expected Resolution Date</mat-label>
+                  <input matInput type="date" formControlName="expectedResolutionDate" />
                 </mat-form-field>
               </div>
 
@@ -268,27 +259,27 @@ function resolutionNoteValidator(): ValidatorFn {
 
               <!-- Customer -->
               <ng-container matColumnDef="customer">
-                <th mat-header-cell *matHeaderCellDef>Customer</th>
+                <th mat-header-cell *matHeaderCellDef>User ID</th>
                 <td mat-cell *matCellDef="let c">
                   <div class="cell-center">
-                    <div class="fw-semibold">{{ displayCustomer(userIdOf(c)) }}</div>
+                    <div class="fw-semibold">{{ c.userId || c.customerId || 'Sys' }}</div>
                   </div>
                 </td>
               </ng-container>
 
               <!-- Subject / Message -->
               <ng-container matColumnDef="subject">
-                <th mat-header-cell *matHeaderCellDef>Subject</th>
+                <th mat-header-cell *matHeaderCellDef>Title/Desc</th>
                 <td mat-cell *matCellDef="let c">
-                  <div class="fw-semibold">{{ c.subject || '—' }}</div>
+                  <div class="fw-semibold">{{ c.title || c.subject || '—' }}</div>
                   <div
                     class="small text-muted ellipsis"
-                    [matTooltip]="c.message || ''"
+                    [matTooltip]="c.description || c.message || ''"
                     matTooltipPosition="above"
                   >
-                    {{ c.message || '' }}
+                    {{ c.description || c.message || '' }}
                   </div>
-                  <div class="small text-muted" *ngIf="hasCategory(c)">#{{ metaOf(c.id).category }}</div>
+                  <div class="small text-muted" *ngIf="c.category">#{{ c.category }}</div>
                 </td>
               </ng-container>
 
@@ -297,43 +288,36 @@ function resolutionNoteValidator(): ValidatorFn {
                 <th mat-header-cell *matHeaderCellDef>Priority</th>
                 <td mat-cell *matCellDef="let c">
                   <div class="cell-center">
-                    <span class="prio prio-{{ (metaOf(c.id).priority || 'MEDIUM').toLowerCase() }}">
-                      {{ (metaOf(c.id).priority || 'MEDIUM') }}
+                    <span class="prio prio-{{ (c.priority || 'LOW').toLowerCase() }}">
+                      {{ (c.priority || 'LOW') }}
                     </span>
                   </div>
                 </td>
               </ng-container>
 
-              <!-- Status (quick change) -->
+              <!-- Status -->
               <ng-container matColumnDef="status">
                 <th mat-header-cell *matHeaderCellDef>Status</th>
                 <td mat-cell *matCellDef="let c">
-                  <div class="cell-center">
-                    <mat-form-field appearance="outline" class="status-ff">
-                      <mat-select [value]="c.status" (selectionChange)="onStatusQuickChange(c, $event.value)">
-                        <mat-option value="OPEN">Open</mat-option>
-                        <mat-option value="IN_PROGRESS">In Progress</mat-option>
-                        <mat-option value="RESOLVED">Resolved</mat-option>
-                        <mat-option value="CLOSED">Closed</mat-option>
-                      </mat-select>
-                    </mat-form-field>
+                  <div class="cell-center fw-semibold status-txt">
+                     {{ c.status }}
                   </div>
                 </td>
               </ng-container>
 
-              <!-- Assignee -->
+              <!-- Ref ID -->
               <ng-container matColumnDef="assignee">
-                <th mat-header-cell *matHeaderCellDef>Assignee</th>
+                <th mat-header-cell *matHeaderCellDef>Ref. Number</th>
                 <td mat-cell *matCellDef="let c">
-                  <div class="cell-center">{{ displayAssignee(c.id) }}</div>
+                  <div class="cell-center text-muted small">{{ c.referenceNumber }}</div>
                 </td>
               </ng-container>
 
-              <!-- Updated -->
+              <!-- Created -->
               <ng-container matColumnDef="updated">
-                <th mat-header-cell *matHeaderCellDef>Updated</th>
+                <th mat-header-cell *matHeaderCellDef>Created</th>
                 <td mat-cell *matCellDef="let c">
-                  <div class="cell-center">{{ displayUpdated(c.id) }}</div>
+                  <div class="cell-center text-muted small">{{ displayUpdated(c.createdAt) }}</div>
                 </td>
               </ng-container>
 
@@ -343,8 +327,8 @@ function resolutionNoteValidator(): ValidatorFn {
                 <td mat-cell *matCellDef="let c">
                   <div class="cell-center">
                     <div class="d-grid d-md-block">
-                      <button mat-stroked-button class="apply-btn action-btn w-100 w-md-auto" (click)="startEdit(c)">
-                        Edit
+                      <button mat-stroked-button color="primary" class="apply-btn action-btn w-100 w-md-auto" (click)="startEdit(c)">
+                        Action
                       </button>
                     </div>
                   </div>
@@ -355,10 +339,13 @@ function resolutionNoteValidator(): ValidatorFn {
               <tr mat-row *matRowDef="let row; columns: cols; trackBy: trackById"></tr>
             </table>
 
-            <div class="empty" *ngIf="!dataSource.filteredData.length">
+            <div class="empty" *ngIf="!dataSource.data.length && !loading">
               <div class="stat-icon indigo">🎫</div>
               <div class="fw-bold mt-2">No complaints found</div>
               <div class="text-muted small">Adjust filters to see results.</div>
+            </div>
+            <div class="p-4 text-center text-muted small" *ngIf="loading">
+              Loading complaints data...
             </div>
           </div>
         </div>
@@ -554,28 +541,36 @@ function resolutionNoteValidator(): ValidatorFn {
   `]
 })
 export class StaffComplaintsComponent {
-  private fb = inject(NonNullableFormBuilder);
-  private cdr = inject(ChangeDetectorRef);
+  loading = false;
 
-  constructor(private complaints: ComplaintService, private users: UserService) {
-    this.initFilterPredicate();
+  constructor(
+    private complaints: NewComplaintService,
+    private fb: NonNullableFormBuilder,
+    private cdr: ChangeDetectorRef,
+    private snack: MatSnackBar,
+    private auth: AuthService
+  ) {
     this.reload();
   }
 
   // Raw rows
-  rows: Complaint[] = [];
   dataSource = new MatTableDataSource<Complaint>([]);
 
-  // Local metadata
-  private metas = new Map<string | number, ComplaintMeta>();
-
-  // Staff options / user-name cache
-  staffOptions: any[] = [];
-  private userNameCache = new Map<string | number, string>();
+  // Pagination
+  page = 0;
+  size = 10;
+  pageInfo = {
+    totalElements: 0,
+    totalPages: 0,
+    number: 0,
+    size: 10,
+    first: true,
+    last: true
+  };
 
   // Filters
   query = '';
-  statusFilter: StatusFilter = '';
+  statusFilter: StatusFilter = 'OPEN';
   priorityFilter: PriorityFilter = '';
 
   cols = ['customer', 'subject', 'priority', 'status', 'assignee', 'updated', 'actions'] as const;
@@ -585,128 +580,85 @@ export class StaffComplaintsComponent {
   editingId: string | number | null = null;
   editingUserId: string | number | null = null;
 
-  editForm: FormGroup<{
-    subject: FormControl<string>;
-    status: FormControl<ComplaintStatus | ''>;
-    priority: FormControl<Priority | ''>;
-    category: FormControl<string>;
-    assignedToId: FormControl<string | number | ''>;
-    resolutionNote: FormControl<string>;
-  }> = this.fb.group(
-    {
-      subject: this.fb.control({ value: '', disabled: false }),
+  editForm = this.fb.group({
+      subject: this.fb.control({ value: '', disabled: true }),
       status: this.fb.control<ComplaintStatus | ''>('', [Validators.required]),
       priority: this.fb.control<Priority | ''>('MEDIUM', [Validators.required]),
-      category: this.fb.control(''),
-      assignedToId: this.fb.control<string | number | ''>(''),
-      resolutionNote: this.fb.control('')
-    },
-    { validators: [resolutionNoteValidator()] }
-  );
+      expectedResolutionDate: this.fb.control(''),
+      resolutionNote: this.fb.control('', [Validators.required])
+  });
 
-  // ---------- lifecycle ----------
-  reload() { this.refresh(); }
-
-  refresh() {
-    this.rows = this.complaints.list();
-
-    // ensure metas have updatedAt + default priority
-    for (const c of this.rows) {
-      const m = this.metaOf(c.id);
-      if (!m.updatedAt) {
-        this.setMeta(c.id, { updatedAt: new Date().toISOString(), priority: m.priority || 'MEDIUM' });
-      }
-    }
-
-    // cache users / staff options
-    const allUsers = this.safeArray(this.users.list?.() ?? []);
-    this.staffOptions = allUsers.filter((u: any) => {
-      const role = String(u?.role ?? '').toUpperCase();
-      return role === 'STAFF' || role === 'ADMIN';
-    });
-
-    this.userNameCache.clear();
-    for (const u of allUsers) {
-      const id = this.getUserId(u);
-      if (id !== undefined) {
-        const name = u?.fullName ?? u?.email ?? String(id);
-        this.userNameCache.set(id, name);
-      }
-    }
-
-    this.dataSource.data = this.rows;
-    this.applyFilters();
-    this.cdr.markForCheck();
+  reload() {
+    this.page = 0;
+    this.fetchData();
   }
 
-  // ---------- filters ----------
-  setQuery(v: string) { this.query = v; this.applyFilters(); }
-  setStatusFilter(v: StatusFilter) { this.statusFilter = v; this.applyFilters(); }
-  setPriorityFilter(v: PriorityFilter) { this.priorityFilter = v; this.applyFilters(); }
-  clearFilters() { this.query = ''; this.statusFilter = ''; this.priorityFilter = ''; this.applyFilters(); }
+  async fetchData() {
+    this.loading = true;
+    this.cdr.markForCheck();
+    try {
+      const resp = await this.complaints.getAllComplaints({
+        page: this.page,
+        size: this.size,
+        status: this.statusFilter || undefined
+      });
 
-  private initFilterPredicate() {
-    this.dataSource.filterPredicate = (c: Complaint, filterJson: string) => {
-      const f = JSON.parse(filterJson) as { q: string; status: StatusFilter; priority: PriorityFilter };
-      const statusOk = !f.status || c.status === f.status;
-      const pr = (this.metaOf(c.id).priority || 'MEDIUM') as Priority;
-      const prOk = !f.priority || pr === f.priority;
-      if (!statusOk || !prOk) return false;
-
-      const q = (f.q || '').toLowerCase().trim();
-      if (!q) return true;
-
-      const subj = (c.subject || '').toLowerCase();
-      const cust = this.displayCustomer(this.userIdOf(c))?.toLowerCase?.() ?? '';
-      return subj.includes(q) || cust.includes(q);
-    };
+      this.dataSource.data = resp.content || [];
+      this.pageInfo = {
+        totalElements: resp.totalElements,
+        totalPages: resp.totalPages,
+        number: resp.number,
+        size: resp.size,
+        first: resp.first,
+        last: resp.last
+      };
+    } catch (err: any) {
+      this.snack.open(err.error?.message || 'Failed to load complaints', 'OK', { duration: 3000 });
+      this.dataSource.data = [];
+    } finally {
+      this.loading = false;
+      this.cdr.markForCheck();
+    }
   }
 
-  private applyFilters() {
-    this.dataSource.filter = JSON.stringify({ q: this.query, status: this.statusFilter, priority: this.priorityFilter });
-    this.cdr.markForCheck();
+  applyFilters() { this.reload(); }
+
+  setQuery(v: string)              { this.query        = v; this.reload(); }
+  setStatusFilter(v: StatusFilter) { this.statusFilter = v; this.reload(); }
+  setPriorityFilter(v: PriorityFilter) { this.priorityFilter = v; this.reload(); }
+  clearFilters()                   { this.query = ''; this.statusFilter = 'OPEN'; this.priorityFilter = ''; this.reload(); }
+
+
+  prevPage() {
+    if (!this.pageInfo.first) {
+      this.page--;
+      this.fetchData();
+    }
+  }
+
+  nextPage() {
+    if (!this.pageInfo.last) {
+      this.page++;
+      this.fetchData();
+    }
   }
 
   // ---------- computed ----------
   get openCount(): number {
-    return this.rows.filter(c => c.status === 'OPEN' || c.status === 'IN_PROGRESS').length;
+    return this.pageInfo.totalElements; // Approximate since backend does the count if filtered to OPEN
   }
 
   // ---------- table helpers ----------
-  trackById = (_: number, row: Complaint) => row.id;
+  trackById = (_: number, row: Complaint) => (row as any).referenceNumber;
 
-  /** Template-safe extraction of possible userId-like keys */
   userIdOf(row: any): string | number | null {
-    const id = row?.userId ?? row?.customerId ?? row?.uid ?? null;
-    return (id !== undefined && id !== null) ? id : null;
+    return row.userId || row.customerId || 'SYS';
   }
 
-  displayCustomer(userId: string | number | null | undefined): string {
-    if (userId === undefined || userId === null) return 'Customer';
-    return this.userNameCache.get(userId) ?? this.users.byId?.(userId as any)?.fullName ?? 'Customer';
-  }
-
-  hasCategory(c: Complaint): boolean { return !!this.metaOf(c.id).category; }
-
-  metaOf(id: string | number): ComplaintMeta {
-    return this.metas.get(id) || {};
-  }
-  setMeta(id: string | number, patch: ComplaintMeta) {
-    const cur = this.metas.get(id) || {};
-    this.metas.set(id, { ...cur, ...patch });
-  }
-
-  displayAssignee(id: string | number): string {
-    const assignedId = this.metaOf(id).assignedToId;
-    if (!assignedId) return '—';
-    return this.userNameCache.get(assignedId) ?? (this.users as any).byId?.(assignedId)?.fullName ?? String(assignedId);
-  }
-
-  displayUpdated(id: string | number): string {
-    const ts = this.metaOf(id).updatedAt;
+  displayUpdated(ts: any): string {
     if (!ts) return '—';
-    const d = this.toDate(ts);
-    if (!d) return '—';
+    const d = new Date(ts);
+    if (!d || isNaN(d.getTime())) return '—';
     try {
       return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(d);
     } catch {
@@ -714,29 +666,17 @@ export class StaffComplaintsComponent {
     }
   }
 
-  // ---------- quick status change ----------
-  onStatusQuickChange(c: Complaint, newStatus: ComplaintStatus) {
-    if ((newStatus === 'RESOLVED' || newStatus === 'CLOSED') && !(this.metaOf(c.id).resolutionNote || '').trim()) {
-      this.startEdit(c);
-      this.editForm.controls.status.setValue(newStatus, { emitEvent: false });
-      return;
-    }
-    this.setStatus(c, newStatus);
-  }
-
   // ---------- edit flow ----------
-  startEdit(c: Complaint) {
-    this.editingId = c.id;
+  startEdit(c: any) {
+    this.editingId = c.referenceNumber;
     this.editingUserId = this.userIdOf(c);
 
-    const m = this.metaOf(c.id);
     this.editForm.reset({
-      subject: c.subject || '',
+      subject: c.title || c.subject || '',
       status: c.status as ComplaintStatus,
-      priority: (m.priority || 'MEDIUM') as Priority,
-      category: m.category || '',
-      assignedToId: (m.assignedToId ?? '') as any,
-      resolutionNote: m.resolutionNote || ''
+      priority: (c.priority || 'MEDIUM') as Priority,
+      expectedResolutionDate: c.expectedResolutionDate || '',
+      resolutionNote: ''
     }, { emitEvent: false });
 
     this.showForm = true;
@@ -750,37 +690,35 @@ export class StaffComplaintsComponent {
     this.cdr.markForCheck();
   }
 
-  saveEdit() {
+  async saveEdit() {
     if (this.editForm.invalid || this.editingId === null) {
       this.editForm.markAllAsTouched();
       return;
     }
     const v = this.editForm.getRawValue();
+    this.loading = true;
 
-    if (v.status) {
-      this.complaints.setStatus(this.editingId as any, v.status as ComplaintStatus);
+    try {
+      if (v.status) {
+        const currentUser = this.auth.user();
+        const staffId = currentUser ? Number(currentUser.id) : 1;
+
+        await this.complaints.staffAction({
+           complaintId: Number(this.editingId),
+           staffId: staffId,
+           status: v.status as 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED',
+           actionNote: v.resolutionNote || 'Status Updated'
+        });
+      }
+      this.snack.open('Complaint updated', 'OK', { duration: 2500 });
+      this.cancelEdit();
+      await this.fetchData();
+    } catch (err: any) {
+      this.snack.open(err.error?.message || 'Update failed', 'OK', { duration: 3000 });
+    } finally {
+      this.loading = false;
+      this.cdr.markForCheck();
     }
-
-    this.setMeta(this.editingId, {
-      priority: (v.priority || 'MEDIUM') as Priority,
-      category: (v.category || '').trim() || undefined,
-      assignedToId: v.assignedToId || undefined,
-      resolutionNote: (v.resolutionNote || '').trim() || undefined,
-      updatedAt: new Date().toISOString()
-    });
-
-    this.rows = this.complaints.list();
-    this.dataSource.data = this.rows;
-    this.applyFilters();
-    this.cancelEdit();
-  }
-
-  setStatus(c: Complaint, status: ComplaintStatus) {
-    this.complaints.setStatus(c.id, status);
-    this.setMeta(c.id, { updatedAt: new Date().toISOString() });
-    this.rows = this.complaints.list();
-    this.dataSource.data = this.rows;
-    this.applyFilters();
   }
 
   // ---------- utils ----------

@@ -13,31 +13,26 @@ export type UiPriority = 'Low' | 'Medium' | 'High' | 'Urgent';
 export type ApiPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 /** Request payload for Spring createComplaint */
-interface ComplaintRequest {
-  title: string;            // backend accepts 'title' (you map subject -> title)
-  description: string;      // message/meta
+export interface ComplaintRequest {
+  bookingId?: number;
   category: 'ROOM_ISSUE' | 'SERVICE_ISSUE' | 'BILLING_ISSUE' | 'OTHER';
+  title: string;
+  description: string;
+  contactPreference: 'CALL' | 'EMAIL';
   priority: ApiPriority;
-  bookingId: number;
-  contactMethod?: 'Email' | 'Phone';
-  email?: string;
-  phone?: string;
 }
 
-/** Response payload (ComplaintResponse) from Spring */
-export interface ComplaintApiResponse {
-  id: number;
-  complaintId: string;
-  title?: string;
-  subject?: string;                // (you set subject=title server-side for convenience)
-  description?: string;
-  status: BackendStatus | string;
-  category?: string;
-  priority?: string;
-  createdAt?: string;              // ISO
-  updatedAt?: string | null;       // ISO
-  submissionDate?: string;         // optional older field
-  expectedResolutionDate?: string; // optional older field
+export interface UpdateComplaintRequest {
+  title: string;
+  description: string;
+  contactPreference: 'CALL' | 'EMAIL';
+}
+
+export interface StaffActionRequest {
+  complaintId: number;
+  staffId: number;
+  status: BackendStatus;
+  actionNote: string;
 }
 
 /** Spring Data Page wrapper */
@@ -62,49 +57,32 @@ export class NewComplaintService {
    * Create a complaint
    * POST /api/complaint/create/{userId}
    */
-  async create(
-    userId: number,
-    subject: string,
-    message: string,
-    extras: {
-      category: string;                 // UI value; will be mapped to backend enum
-      priority: UiPriority;             // UI casing; will be mapped to API enum
-      bookingId: number;
-      contactMethod?: 'Email' | 'Phone';
-      email?: string;
-      phone?: string;
-    }
-  ): Promise<Complaint> {
-    if (!extras?.category) throw new Error('category is required');
-    if (!extras?.priority) throw new Error('priority is required');
-    if (typeof extras.bookingId !== 'number') {
-      throw new Error('bookingId is required to create a complaint.');
-    }
+  async create(userId: number, request: ComplaintRequest): Promise<Complaint> {
+    const url = `${this.baseUrl}/create/${encodeURIComponent(String(userId))}`;
+    const headers = new HttpHeaders({ 'Content-Type': 'application/json' });
+    return await firstValueFrom(this.http.post<Complaint>(url, request, { headers }));
+  }
 
-    const req: ComplaintRequest = {
-      title: (subject ?? '').trim() || 'Complaint',
-      description: (message ?? '').trim(),
-      category: this.mapCategory(extras.category),
-      priority: this.mapPriority(extras.priority),
-      bookingId: Number(extras.bookingId),
-      contactMethod: extras.contactMethod,
-      email: extras.contactMethod === 'Email' ? (extras.email || undefined) : undefined,
-      phone: extras.contactMethod === 'Phone' ? (extras.phone || undefined) : undefined,
-    };
-
-    const resp = await this.postCreate(userId, req);
-    return this.mapBackendToFrontend(resp, userId, subject, message);
+  /**
+   * Update a complaint
+   * PUT /api/complaint/update/{reference}?userId={userId}
+   */
+  async update(reference: string, userId: number, request: UpdateComplaintRequest): Promise<Complaint> {
+    const url = `${this.baseUrl}/update/${encodeURIComponent(reference)}`;
+    const params = new HttpParams().set('userId', String(userId));
+    const headers = new HttpHeaders({ 'Content-Type': 'application/json' });
+    return await firstValueFrom(this.http.put<Complaint>(url, request, { headers, params }));
   }
 
   /**
    * Track complaint (single)
-   * GET /api/complaint/track/{complaintId}?userId=
+   * GET /api/complaint/track/{reference}?userId=
    */
-  async track(complaintId: string, userId: number): Promise<ComplaintApiResponse> {
+  async track(reference: string, userId: number): Promise<Complaint> {
     const params = new HttpParams().set('userId', String(userId));
     return await firstValueFrom(
-      this.http.get<ComplaintApiResponse>(
-        `${this.baseUrl}/track/${encodeURIComponent(complaintId)}`,
+      this.http.get<Complaint>(
+        `${this.baseUrl}/track/${encodeURIComponent(reference)}`,
         { params }
       )
     );
@@ -119,7 +97,7 @@ export class NewComplaintService {
     status?: BackendStatus;
     page?: number;
     size?: number;
-  }): Promise<PageResponse<ComplaintApiResponse>> {
+  }): Promise<PageResponse<Complaint>> {
     let params = new HttpParams()
       .set('userId', String(options.userId))
       .set('page', String(options.page ?? 0))
@@ -130,17 +108,65 @@ export class NewComplaintService {
     }
 
     return await firstValueFrom(
-      this.http.get<PageResponse<ComplaintApiResponse>>(`${this.baseUrl}/my`, { params })
+      this.http.get<PageResponse<Complaint>>(`${this.baseUrl}/my`, { params })
     );
   }
 
-  // ---------------- Internals ----------------
-
-  private async postCreate(userId: number, req: ComplaintRequest): Promise<ComplaintApiResponse> {
-    const url = `${this.baseUrl}/create/${encodeURIComponent(String(userId))}`;
-    const headers = new HttpHeaders({ 'Content-Type': 'application/json' });
-    return await firstValueFrom(this.http.post<ComplaintApiResponse>(url, req, { headers }));
+  /**
+   * Confirm Resolution (Closes the complaint)
+   * PUT /api/complaint/{reference}/confirm?userId=
+   */
+  async confirmResolution(reference: string, userId: number): Promise<Complaint> {
+    const url = `${this.baseUrl}/${encodeURIComponent(reference)}/confirm`;
+    const params = new HttpParams().set('userId', String(userId));
+    return await firstValueFrom(this.http.put<Complaint>(url, {}, { params }));
   }
+
+  /**
+   * Reopen a Resolved Complaint
+   * PUT /api/complaint/{reference}/reopen?userId=
+   */
+  async reopen(reference: string, userId: number): Promise<Complaint> {
+    const url = `${this.baseUrl}/${encodeURIComponent(reference)}/reopen`;
+    const params = new HttpParams().set('userId', String(userId));
+    return await firstValueFrom(this.http.put<Complaint>(url, {}, { params }));
+  }
+
+  // ---------------- Staff/Admin Endpoints ----------------
+
+  /**
+   * Fetch All Complaints (Staff Dashboard)
+   * GET /api/complaint/all?page=0&size=10&status=OPEN
+   */
+  async getAllComplaints(options: {
+    status?: BackendStatus;
+    page?: number;
+    size?: number;
+  }): Promise<PageResponse<Complaint>> {
+    let params = new HttpParams()
+      .set('page', String(options.page ?? 0))
+      .set('size', String(options.size ?? 10));
+
+    if (options.status) {
+      params = params.set('status', options.status);
+    }
+
+    return await firstValueFrom(
+      this.http.get<PageResponse<Complaint>>(`${this.baseUrl}/all`, { params })
+    );
+  }
+
+  /**
+   * Staff Takes Action / Changes Status
+   * POST /api/complaint/action
+   */
+  async staffAction(request: StaffActionRequest): Promise<Complaint> {
+    const url = `${this.baseUrl}/action`;
+    const headers = new HttpHeaders({ 'Content-Type': 'application/json' });
+    return await firstValueFrom(this.http.post<Complaint>(url, request, { headers }));
+  }
+
+  // ---------------- Internals ----------------
 
   private mapPriority(p: UiPriority): ApiPriority {
     switch (p) {
@@ -152,54 +178,7 @@ export class NewComplaintService {
     }
   }
 
-  /**
-   * Map UI labels -> backend enum values.
-   * If your form already sends enum codes (e.g., ROOM_ISSUE), you can return as-is.
-   */
-  private mapCategory(c: string): ComplaintRequest['category'] {
-    const map: Record<string, ComplaintRequest['category']> = {
-      // UI labels you used earlier:
-      'Housekeeping': 'ROOM_ISSUE',
-      'Maintenance': 'ROOM_ISSUE',
-      'Billing': 'BILLING_ISSUE',
-      'Food & Beverage': 'SERVICE_ISSUE',
-      'Reservation': 'SERVICE_ISSUE',
-      'Other': 'OTHER',
 
-      // If UI already sends enum codes, keep them:
-      'ROOM_ISSUE': 'ROOM_ISSUE',
-      'SERVICE_ISSUE': 'SERVICE_ISSUE',
-      'BILLING_ISSUE': 'BILLING_ISSUE',
-      'OTHER': 'OTHER',
-    };
-    return map[c] ?? 'OTHER';
-  }
-
-  /**
-   * Map backend ComplaintResponse -> your frontend Complaint model (models.ts)
-   * Used by RegisterComplaintComponent to show a quick success toast.
-   */
-  private mapBackendToFrontend(
-    r: ComplaintApiResponse,
-    userId: number,
-    subject: string,
-    message: string
-  ): Complaint {
-    const created =
-      r.createdAt ?? r.submissionDate ?? new Date().toISOString();
-    const updated =
-      (r.updatedAt ?? r.submissionDate ?? created) || created;
-
-    return {
-      id: r.complaintId ?? String(r.id),            // prefer human-readable tracking id
-      userId: String(userId),
-      subject,
-      message,
-      status: (String(r.status || 'OPEN').toUpperCase() as ComplaintStatus) ?? 'OPEN',
-      createdAt: created,
-      updatedAt: updated,
-    };
-  }
 
   /** Normalize errors for snackbars */
   static parseHttpError(err: any, fallback = 'Something went wrong') {
