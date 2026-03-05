@@ -31,7 +31,7 @@ export class AuthService {
         fullName: session.user.fullName,
         email: session.user.email,
         password: '',
-        phone: undefined,
+        phone: session.user.phone,
         role: session.user.role,
         active: true
       };
@@ -65,7 +65,8 @@ export class AuthService {
               id: String(res.id),
               fullName: res.userName,
               email: res.email,
-              role: res.role
+              role: res.role,
+              phone: res.phoneNumber
             }
           };
 
@@ -76,7 +77,7 @@ export class AuthService {
             fullName: session.user.fullName,
             email: session.user.email,
             password: '',
-            phone: undefined,
+            phone: session.user.phone,
             role: session.user.role,
             active: true
           };

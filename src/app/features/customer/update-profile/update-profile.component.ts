@@ -70,61 +70,8 @@ import { AuthService } from '../../../core/services/auth.service';
                   <mat-form-field appearance="outline" class="w-100">
                     <mat-label>Phone</mat-label>
                     <input matInput formControlName="phone" autocomplete="tel" inputmode="numeric" />
-                    <mat-hint>Optional. 10-digit number</mat-hint>
-                    <mat-error *ngIf="hasError('phone','pattern')">Enter a valid 10-digit phone</mat-error>
-                  </mat-form-field>
-                </div>
-              </div>
-            </div>
-
-            <mat-divider class="my-2"></mat-divider>
-
-            <!-- ADDRESS (optional in UI; not sent to backend unless DTO supports it) -->
-            <div class="section-block">
-              <div class="section-title">Address</div>
-
-              <div class="row g-3">
-                <div class="col-12">
-                  <mat-form-field appearance="outline" class="w-100">
-                    <mat-label>Address Line 1</mat-label>
-                    <input matInput formControlName="address1" autocomplete="address-line1" />
-                  </mat-form-field>
-                </div>
-
-                <div class="col-12">
-                  <mat-form-field appearance="outline" class="w-100">
-                    <mat-label>Address Line 2 (Optional)</mat-label>
-                    <input matInput formControlName="address2" autocomplete="address-line2" />
-                  </mat-form-field>
-                </div>
-
-                <div class="col-12 col-md-6">
-                  <mat-form-field appearance="outline" class="w-100">
-                    <mat-label>City</mat-label>
-                    <input matInput formControlName="city" autocomplete="address-level2" />
-                  </mat-form-field>
-                </div>
-
-                <div class="col-12 col-md-6">
-                  <mat-form-field appearance="outline" class="w-100">
-                    <mat-label>State</mat-label>
-                    <input matInput formControlName="state" autocomplete="address-level1" />
-                  </mat-form-field>
-                </div>
-
-                <div class="col-12 col-md-6">
-                  <mat-form-field appearance="outline" class="w-100">
-                    <mat-label>Pincode</mat-label>
-                    <input matInput formControlName="pincode" inputmode="numeric" autocomplete="postal-code" />
-                    <mat-hint>Optional. 6-digit pincode</mat-hint>
-                    <mat-error *ngIf="hasError('pincode','pattern')">Enter a valid 6-digit pincode</mat-error>
-                  </mat-form-field>
-                </div>
-
-                <div class="col-12 col-md-6">
-                  <mat-form-field appearance="outline" class="w-100">
-                    <mat-label>Country</mat-label>
-                    <input matInput formControlName="country" autocomplete="country-name" />
+                    <mat-hint>Optional. Indian mobile number (e.g. 98XXXXXXXX)</mat-hint>
+                    <mat-error *ngIf="hasError('phone','pattern')">Enter a valid Indian mobile number starting with 6, 7, 8 or 9</mat-error>
                   </mat-form-field>
                 </div>
               </div>
@@ -197,31 +144,29 @@ export class UpdateProfileComponent {
     // Optional validators: allow empty values
     fullName: this.fb.control('', [Validators.pattern(/^$|^[a-zA-Z][a-zA-Z ]+$/)]),
     email: this.fb.control('', [Validators.email]),
-    phone: this.fb.control('', [Validators.pattern(/^$|^\d{10}$/)]),
-
-    // Address fields (optional, not sent to backend unless backend supports them)
-    address1: this.fb.control(''),
-    address2: this.fb.control(''),
-    city: this.fb.control(''),
-    state: this.fb.control(''),
-    pincode: this.fb.control('', [Validators.pattern(/^$|^\d{6}$/)]),
-    country: this.fb.control('')
+    phone: this.fb.control('', [Validators.pattern(/^$|^[6-9]\d{9}$/)])
   });
 
   ngOnInit() {
     const u: any = this.auth.user?.();
     if (!u) return;
 
+    // Fall back to stored session to pick up phone if signal doesn't have it yet
+    let phone = u.phone ?? '';
+    if (!phone) {
+      try {
+        const raw = localStorage.getItem('app_session_v1');
+        if (raw) {
+          const stored = JSON.parse(raw);
+          phone = stored?.user?.phone ?? '';
+        }
+      } catch {}
+    }
+
     this.form.patchValue({
       fullName: u.fullName ?? u.userName ?? '',
       email: u.email ?? '',
-      phone: u.phone ?? '',
-      address1: u.address1 ?? '',
-      address2: u.address2 ?? '',
-      city: u.city ?? '',
-      state: u.state ?? '',
-      pincode: u.pincode ?? '',
-      country: u.country ?? ''
+      phone
     });
   }
 

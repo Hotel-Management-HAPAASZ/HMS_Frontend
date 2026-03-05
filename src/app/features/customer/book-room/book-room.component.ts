@@ -2,7 +2,7 @@ import { Component, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { switchMap, map, finalize, tap, catchError } from 'rxjs/operators'; 
+import { switchMap, map, finalize, tap, catchError } from 'rxjs/operators';
 import { RoomService } from '../../../core/services/room.service';
 import { BookingService } from '../../../core/services/booking.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -20,6 +20,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { PaymentApiService } from '../../../core/services/payment-api.service';
 // NEW: backend booking API
 import { BookingApiService, toDateOnly } from '../../../core/services/booking-api.service';
+import { ToastService } from '../../../core/services/toast.service';
 
 @Component({
   standalone: true,
@@ -328,8 +329,8 @@ export class BookRoomComponent {
     private bookingApi: BookingApiService,    // NEW: backend api
     private auth: AuthService,
     private paymentApi: PaymentApiService,   // 👈 add this
-  
-    private fb: FormBuilder
+    private fb: FormBuilder,
+    private toast: ToastService
   ) {
     const u = this.auth.user();
     if (u) {
@@ -414,7 +415,7 @@ export class BookRoomComponent {
 
   form = this.fb.group({
     email: ['', [Validators.required, Validators.email]],
-    phone: ['', [Validators.required, Validators.pattern(/^[0-9]{10}$/)]],
+    phone: ['', [Validators.required, Validators.pattern(/^[6-9]\d{9}$/)]],
     arrival: ['', [Validators.required]],
     requests: ['', [Validators.maxLength(250)]],
     terms: [false, [Validators.requiredTrue]]
@@ -427,7 +428,7 @@ confirm() {
   const r = this.room();
   if (!user || !r) {
     console.warn('[ConfirmBooking] Missing user or room', { user: !!user, room: !!r });
-    alert('Missing user or room. Please try again.');
+    this.toast.showError('User or room information is missing. Please try again.');
     return;
   }
 
@@ -441,13 +442,13 @@ confirm() {
       guestInvalid: this.guestInvalid(),
       dateRangeInvalid: this.dateRangeInvalid()
     });
-    alert('Invalid booking details. Please go back and search again.');
+    this.toast.showError('Invalid booking details. Please return to the search page and try again.');
     this.back();
     return;
   }
   if (this.form.invalid) {
     console.warn('[ConfirmBooking] form invalid', this.form.value);
-    alert('Please fix the form errors.');
+    this.toast.showError('Please fix the highlighted errors in the form before proceeding.');
     return;
   }
 
@@ -479,10 +480,10 @@ confirm() {
     error: (err) => {
       this.loading.set(false);
       console.error('[ConfirmBooking] booking failed ✖', err);
-      alert(
+      this.toast.showError(
         err?.error?.message ??
         err?.message ??
-        'Unable to create booking. Please try again.'
+        'We were unable to complete your booking. Please try again.'
       );
     }
   });

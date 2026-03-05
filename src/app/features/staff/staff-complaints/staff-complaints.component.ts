@@ -578,6 +578,7 @@ export class StaffComplaintsComponent {
   // Edit form
   showForm = false;
   editingId: string | number | null = null;
+  editingNumericId: number | null = null;
   editingUserId: string | number | null = null;
 
   editForm = this.fb.group({
@@ -669,6 +670,7 @@ export class StaffComplaintsComponent {
   // ---------- edit flow ----------
   startEdit(c: any) {
     this.editingId = c.referenceNumber;
+    this.editingNumericId = Number(c.id);
     this.editingUserId = this.userIdOf(c);
 
     this.editForm.reset({
@@ -686,6 +688,7 @@ export class StaffComplaintsComponent {
   cancelEdit() {
     this.showForm = false;
     this.editingId = null;
+    this.editingNumericId = null;
     this.editingUserId = null;
     this.cdr.markForCheck();
   }
@@ -704,7 +707,7 @@ export class StaffComplaintsComponent {
         const staffId = currentUser ? Number(currentUser.id) : 1;
 
         await this.complaints.staffAction({
-           complaintId: Number(this.editingId),
+           complaintId: this.editingNumericId || 0,
            staffId: staffId,
            status: v.status as 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED',
            actionNote: v.resolutionNote || 'Status Updated'

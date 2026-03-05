@@ -40,6 +40,7 @@ export interface Booking {
 export type ComplaintStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 
 export interface Complaint {
+  id?: number | string;
   referenceNumber: string;
   bookingId?: number;
   title: string;

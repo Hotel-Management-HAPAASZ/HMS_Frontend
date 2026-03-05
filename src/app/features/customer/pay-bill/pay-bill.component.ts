@@ -14,6 +14,7 @@ import { BookingApiService } from '../../../core/services/booking-api.service';
 import { RoomService } from '../../../core/services/room.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PaymentApiService, PaymentResponse } from '../../../core/services/payment-api.service';
+import { ToastService } from '../../../core/services/toast.service';
 
 /* ───────────── Custom validators ───────────── */
 const cardNameValidator: ValidatorFn = (control: AbstractControl) => {
@@ -393,6 +394,7 @@ export class PayBillComponent implements OnInit {
   private datePipe = inject(DatePipe);
   private bookingApi = inject(BookingApiService);
   private paymentApi = inject(PaymentApiService);
+  private toast = inject(ToastService);
 
   paying = signal(false);
   awaitingOtp = signal(false);
@@ -517,14 +519,14 @@ export class PayBillComponent implements OnInit {
   /* ───────────── Submit ───────────── */
   pay() {
     const b = this.booking() as any;
-    if (!b) { alert('Booking not found.'); return; }
-    if (b.status === 'PAID') { alert('Already paid.'); return; }
+    if (!b) { this.toast.showError('Booking not found. Please verify your booking reference.'); return; }
+    if (b.status === 'PAID') { this.toast.showSuccess('This booking has already been paid in full.'); return; }
 
     const method = this.form.value.method as 'CASH' | 'CARD' | 'UPI';
-    if (!method) { this.form.controls.method.markAsTouched(); alert('Please select a payment method.'); return; }
+    if (!method) { this.form.controls.method.markAsTouched(); this.toast.showError('Please select a payment method to proceed.'); return; }
 
     this.touchRelevant(method);
-    if (!this.isValidFor(method)) { alert('Please fix the highlighted fields.'); return; }
+    if (!this.isValidFor(method)) { this.toast.showError('Please fix the highlighted errors in the form before proceeding.'); return; }
 
     const bookingId = Number(b.bookingId ?? b.id);
 
@@ -537,7 +539,7 @@ export class PayBillComponent implements OnInit {
     }
 
     if (method === 'UPI') {
-      alert('UPI details captured.');
+      this.toast.showSuccess('UPI payment details have been captured successfully.');
       return;
     }
 
@@ -559,7 +561,8 @@ export class PayBillComponent implements OnInit {
         this.otpControl.reset();
       },
       error: (err) => {
-        alert(err?.error?.message ?? err?.message ?? 'Unable to initiate card payment.');
+        const errorMsg = err?.error?.message ?? err?.message ?? 'We were unable to initiate the card payment. Please try again later.';
+        this.toast.showError(errorMsg);
       },
       complete: () => this.paying.set(false)
     });
@@ -567,7 +570,7 @@ export class PayBillComponent implements OnInit {
 
   verifyOtp() {
     const payment = this.currentPayment();
-    if (!payment) { alert('No payment to verify.'); return; }
+    if (!payment) { this.toast.showError('There is no active payment to verify.'); return; }
     this.otpControl.markAsTouched();
     if (this.otpControl.invalid) return;
 
@@ -587,7 +590,8 @@ export class PayBillComponent implements OnInit {
         });
       },
       error: (err) => {
-        alert(err?.error?.message ?? err?.message ?? 'OTP verification failed.');
+        const errorMsg = err?.error?.message ?? err?.message ?? 'OTP verification failed. Please ensure you entered the correct code.';
+        this.toast.showError(errorMsg);
       },
       complete: () => this.paying.set(false)
     });

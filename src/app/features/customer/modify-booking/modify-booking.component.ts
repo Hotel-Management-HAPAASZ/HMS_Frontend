@@ -19,7 +19,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDividerModule } from '@angular/material/divider';
-import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { BookingService, BookingRow, ModifyBookingRequestDto } from '../../../core/services/booking.service';
 import { RoomService } from '../../../core/services/room.service';
@@ -36,7 +36,7 @@ import { RoomService } from '../../../core/services/room.service';
     MatInputModule,
     MatButtonModule,
     MatDividerModule,
-    MatSnackBarModule
+    MatProgressBarModule
   ],
   template: `
   <div class="dash-bg py-3 py-md-4">
@@ -49,7 +49,7 @@ import { RoomService } from '../../../core/services/room.service';
             <div class="kicker">Customer Portal</div>
             <h2 class="fw-bold mb-1 title">Modify Booking</h2>
             <p class="text-muted mb-0">
-              Update your stay dates and guest count. Review the updated total before saving.
+              Update your stay dates and guest count. Changes are validated at save.
             </p>
           </div>
 
@@ -60,7 +60,8 @@ import { RoomService } from '../../../core/services/room.service';
             <button mat-raised-button color="primary"
               class="btn-app"
               [disabled]="form.invalid || loading() || !bookingNow()"
-              (click)="save()">
+              type="submit"
+              form="modifyForm">
               {{ loading() ? 'Saving...' : 'Save Changes' }}
             </button>
           </div>
@@ -93,7 +94,7 @@ import { RoomService } from '../../../core/services/room.service';
 
               <mat-divider class="my-3"></mat-divider>
 
-              <form [formGroup]="form" class="row g-3" (ngSubmit)="save()">
+              <form [formGroup]="form" class="row g-3" (ngSubmit)="openConfirmOverlay()" id="modifyForm">
 
                 <!-- From -->
                 <div class="col-12 col-md-6">
@@ -157,33 +158,12 @@ import { RoomService } from '../../../core/services/room.service';
                   </div>
                 </div>
 
-                <!-- Reason (Required) -->
+                <!-- Reason (Optional now) -->
                 <div class="col-12 col-md-6">
                   <mat-form-field appearance="outline" class="w-100">
-                    <mat-label>Reason for change</mat-label>
+                    <mat-label>Reason for change (optional)</mat-label>
                     <input matInput placeholder="E.g., travel dates changed"
                       formControlName="reason" />
-                    <mat-error *ngIf="reasonCtrl.touched && reasonCtrl.hasError('required')">
-                      Reason is required
-                    </mat-error>
-                    <mat-error *ngIf="reasonCtrl.touched && reasonCtrl.hasError('minlength')">
-                      Please enter at least 5 characters
-                    </mat-error>
-                  </mat-form-field>
-                </div>
-
-                <!-- Special Requests (Optional) -->
-                <div class="col-12">
-                  <mat-form-field appearance="outline" class="w-100">
-                    <mat-label>Special requests (optional)</mat-label>
-                    <textarea matInput rows="3"
-                      placeholder="Any requests you want the hotel to know…"
-                      formControlName="notes"></textarea>
-                    <mat-hint align="end">{{ notesLength() }}/250</mat-hint>
-
-                    <mat-error *ngIf="notesCtrl.touched && notesCtrl.hasError('maxlength')">
-                      Max 250 characters allowed
-                    </mat-error>
                   </mat-form-field>
                 </div>
 
@@ -191,7 +171,8 @@ import { RoomService } from '../../../core/services/room.service';
                 <div class="col-12 d-flex gap-2 mt-1">
                   <button mat-raised-button color="primary"
                     class="btn-app"
-                    [disabled]="form.invalid || loading()">
+                    [disabled]="form.invalid || loading()"
+                    type="submit">
                     {{ loading() ? 'Saving...' : 'Save Changes' }}
                   </button>
                   <button mat-stroked-button type="button" (click)="back()" class="btn-ghost">
@@ -202,70 +183,9 @@ import { RoomService } from '../../../core/services/room.service';
             </div>
           </div>
 
-          <!-- Right: Summary -->
+          <!-- Right: (No price summary) -->
           <div class="col-12 col-lg-5">
             <div class="app-card p-3 p-md-4">
-              <div class="d-flex align-items-center justify-content-between mb-2">
-                <h5 class="fw-bold mb-0">Price Summary</h5>
-                <span class="live-pill">Live preview</span>
-              </div>
-
-              <div class="summary-pro">
-                <div class="mini-grid">
-                  <div class="mini">
-                    <div class="mini-label">Nights</div>
-                    <div class="mini-value">{{ previewNights() }}</div>
-                  </div>
-                  <div class="mini">
-                    <div class="mini-label">Rate / night</div>
-                    <div class="mini-value">₹{{ pricePerNight() }}</div>
-                  </div>
-                  <div class="mini">
-                    <div class="mini-label">Guests</div>
-                    <div class="mini-value">{{ form.value.guests || 1 }}</div>
-                  </div>
-                </div>
-
-                <div class="divider-soft"></div>
-
-                <div class="total-row">
-                  <div>
-                    <div class="total-label">Estimated total</div>
-                    <div class="total-sub text-muted small">
-                      Based on selected dates
-                    </div>
-                  </div>
-                  <div class="total-amount">₹{{ previewTotal() }}</div>
-                </div>
-
-                <div class="delta-row">
-                  <div class="text-muted small">
-                    Current total: <span class="fw-semibold">₹{{ b.totalAmount }}</span>
-                  </div>
-
-                  <div class="delta"
-                    [class.pos]="deltaAmount(b.totalAmount) > 0"
-                    [class.neg]="deltaAmount(b.totalAmount) < 0"
-                    *ngIf="form.valid && previewNights() > 0">
-                    <span class="delta-tag">Δ</span>
-                    <span>
-                      {{ deltaLabel(b.totalAmount) }}
-                      ₹{{ abs(deltaAmount(b.totalAmount)) }}
-                    </span>
-                  </div>
-                </div>
-
-                <div class="info mt-3">
-                  <div class="info-dot"></div>
-                  <div class="small text-muted">
-                    Totals update automatically based on the new dates.
-                    Availability and pricing will be validated at save.
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="app-card p-3 p-md-4 mt-3">
               <h6 class="fw-bold mb-2">Policy reminders</h6>
               <ul class="list-unstyled mb-0 small text-muted">
                 <li class="d-flex gap-2 mb-2"><span class="tip-dot"></span><span>Date changes depend on availability.</span></li>
@@ -294,6 +214,64 @@ import { RoomService } from '../../../core/services/room.service';
         © 2026 Hotel Booking System
       </div>
 
+    </div>
+  </div>
+
+  <!-- ===== Overlay (confirm + processing/refund/status) ===== -->
+  <div class="overlay-backdrop" *ngIf="overlayVisible()">
+    <div class="overlay-card app-card p-3 p-md-4">
+      <!-- Confirm overlay -->
+      <ng-container *ngIf="overlayKind() === 'confirm'">
+        <h5 class="fw-bold mb-1">Confirm modification</h5>
+        <p class="text-muted small mb-3">Please review and confirm your changes.</p>
+
+        <div class="mini-grid">
+          <div class="mini">
+            <div class="mini-label">Check-in</div>
+            <div class="mini-value">{{ fmtDate(form.value.from) }}</div>
+          </div>
+          <div class="mini">
+            <div class="mini-label">Check-out</div>
+            <div class="mini-value">{{ fmtDate(form.value.to) }}</div>
+          </div>
+          <div class="mini">
+            <div class="mini-label">Guests</div>
+            <div class="mini-value">{{ form.value.guests || 1 }}</div>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-3">
+          <button mat-raised-button color="primary" class="btn-app"
+                  (click)="confirmSave()" [disabled]="loading()">Confirm</button>
+          <button mat-stroked-button class="btn-ghost" (click)="closeOverlay()"
+                  [disabled]="loading()">Cancel</button>
+        </div>
+      </ng-container>
+
+      <!-- Processing / Refund progress -->
+      <ng-container *ngIf="overlayKind() === 'processing' || overlayKind() === 'refund'">
+        <h5 class="fw-bold mb-1">{{ overlayTitle() }}</h5>
+        <div class="text-muted small" *ngIf="overlayMessage()">{{ overlayMessage() }}</div>
+        <div class="mt-3"><mat-progress-bar mode="indeterminate"></mat-progress-bar></div>
+      </ng-container>
+
+      <!-- Success -->
+      <ng-container *ngIf="overlayKind() === 'success'">
+        <h5 class="fw-bold mb-1">{{ overlayTitle() }}</h5>
+        <div class="text-muted small" *ngIf="overlayMessage()">{{ overlayMessage() }}</div>
+        <div class="d-flex gap-2 mt-3">
+          <button mat-raised-button color="primary" class="btn-app" (click)="goHistory()">Go to History</button>
+        </div>
+      </ng-container>
+
+      <!-- Error -->
+      <ng-container *ngIf="overlayKind() === 'error'">
+        <h5 class="fw-bold mb-1">{{ overlayTitle() }}</h5>
+        <div class="text-muted small" *ngIf="overlayMessage()">{{ overlayMessage() }}</div>
+        <div class="d-flex gap-2 mt-3">
+          <button mat-raised-button color="primary" class="btn-app" (click)="closeOverlay()">Close</button>
+        </div>
+      </ng-container>
     </div>
   </div>
   `,
@@ -349,16 +327,6 @@ import { RoomService } from '../../../core/services/room.service';
       background: rgba(34,197,94,0.10);
       color: rgba(21,128,61,1);
     }
-    .summary-pro{
-      margin-top: 12px;
-      border-radius: 16px;
-      border: 1px solid rgba(15,23,42,0.08);
-      background:
-        radial-gradient(700px 220px at 10% 0%, rgba(79,70,229,0.08), transparent 55%),
-        radial-gradient(700px 220px at 100% 10%, rgba(6,182,212,0.08), transparent 55%),
-        rgba(255,255,255,0.7);
-      padding: 14px;
-    }
     .mini-grid{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .mini{
       border-radius: 14px; border: 1px solid rgba(15,23,42,0.08);
@@ -369,33 +337,28 @@ import { RoomService } from '../../../core/services/room.service';
       color: rgba(15,23,42,0.55); margin-bottom: 4px;
     }
     .mini-value{ font-size: 16px; font-weight: 900; color: rgba(15,23,42,0.92); }
-    .divider-soft{ height: 1px; background: rgba(15,23,42,0.08); margin: 12px 0; }
-    .total-row{ display:flex; justify-content:space-between; align-items:center; gap:12px; padding: 2px 0 6px; }
-    .total-label{ font-weight: 900; font-size: 14px; color: rgba(15,23,42,0.92); }
-    .total-amount{ font-weight: 950; font-size: 18px; color: rgba(15,23,42,0.95); }
-    .delta-row{ display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
-    .delta{
-      display:inline-flex; align-items:center; gap:8px; padding:6px 10px;
-      border-radius: 999px; border: 1px solid rgba(15,23,42,0.10); background: rgba(15,23,42,0.03);
-      font-weight: 800; font-size: 12px; color: rgba(15,23,42,0.78);
-    }
-    .delta-tag{
-      width:18px; height:18px; border-radius:999px; display:grid; place-items:center;
-      font-size:12px; font-weight:900; background: rgba(15,23,42,0.08); color: rgba(15,23,42,0.75);
-    }
-    .delta.pos{ border-color: rgba(245,158,11,0.22); background: rgba(245,158,11,0.12); color: rgba(120,53,15,1); }
-    .delta.pos .delta-tag{ background: rgba(245,158,11,0.22); color: rgba(120,53,15,1); }
-    .delta.neg{ border-color: rgba(34,197,94,0.22); background: rgba(34,197,94,0.12); color: rgba(21,128,61,1); }
-    .delta.neg .delta-tag{ background: rgba(34,197,94,0.22); color: rgba(21,128,61,1); }
 
-    .info{ display:flex; gap:10px; align-items:flex-start; border:1px solid rgba(15,23,42,0.08);
-      background: rgba(255,255,255,0.70); padding:10px 12px; border-radius:14px; }
-    .info-dot{
-      width:10px; height:10px; border-radius:999px; margin-top:6px;
-      background: linear-gradient(135deg, var(--app-primary), var(--app-secondary));
-      box-shadow: 0 6px 12px rgba(79, 70, 229, 0.15);
-      flex: 0 0 10px;
+    /* Overlay */
+    .overlay-backdrop{
+      position: fixed; inset: 0; z-index: 1050;
+      background: rgba(2,8,23,0.45);
+      display: grid; place-items: center;
+      padding: 14px;
     }
+    .overlay-card{
+      width: 100%;
+      max-width: 560px;
+      border: 1px solid var(--app-border);
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: 0 20px 40px rgba(2,8,23,0.18);
+      animation: pop 0.12s ease-out;
+    }
+    @keyframes pop {
+      from { transform: scale(0.98); opacity: 0.6; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
     .tip-dot{
       width:10px; height:10px; border-radius:999px; margin-top:6px;
       background: linear-gradient(135deg, var(--app-primary), var(--app-secondary));
@@ -411,10 +374,15 @@ export class ModifyBookingComponent implements OnInit {
   private fb = inject(FormBuilder);
   private bookings = inject(BookingService);
   private rooms = inject(RoomService);
-  private snack = inject(MatSnackBar);
 
   // UI state
   loading = signal(false);
+
+  // Overlay state
+  overlayVisible = signal(false);
+  overlayKind = signal<'confirm' | 'processing' | 'refund' | 'success' | 'error' | 'payment'>('confirm');
+  overlayTitle = signal<string>('');
+  overlayMessage = signal<string>('');
 
   // today at 00:00 local (for min date)
   minDate = new Date(new Date().setHours(0, 0, 0, 0));
@@ -430,8 +398,8 @@ export class ModifyBookingComponent implements OnInit {
     from: [null as Date | null, [Validators.required, this.pastDateValidator()]],
     to: [null as Date | null, [Validators.required]],
     guests: [1, [Validators.required, Validators.min(1)]],
-    reason: ['', [Validators.required, Validators.minLength(5)]],
-    notes: ['', [Validators.maxLength(250)]]
+    // Reason is optional now (no required/minLength)
+    reason: ['']
   }, { validators: [this.dateRangeValidator()] });
 
   // handy accessors
@@ -439,7 +407,6 @@ export class ModifyBookingComponent implements OnInit {
   get toCtrl() { return this.form.get('to')!; }
   get guestsCtrl() { return this.form.get('guests')!; }
   get reasonCtrl() { return this.form.get('reason')!; }
-  get notesCtrl() { return this.form.get('notes')!; }
 
   ngOnInit() {
     const id = this.bookingId();
@@ -457,8 +424,7 @@ export class ModifyBookingComponent implements OnInit {
           from: this.safeDate(b.fromDate),
           to: this.safeDate(b.toDate),
           guests: b.guests ?? 1,
-          reason: '',
-          notes: ''
+          reason: ''
         });
         // adjust guest max validator based on room capacity, if known
         const max = this.maxGuests();
@@ -489,17 +455,7 @@ export class ModifyBookingComponent implements OnInit {
     return d;
   }
 
-  notesLength() {
-    return (this.form.value.notes ?? '').length;
-  }
-
-  // ---- Currency / formatting helpers for consistent UX in dialogs/snacks ----
-  private inr(n: number) {
-    // Formats in ₹ and Indian grouping
-    return n.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 });
-  }
-
-  private fmtDate(d: Date | null | undefined) {
+  fmtDate(d: Date | null | undefined) {
     if (!d) return '—';
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -507,7 +463,7 @@ export class ModifyBookingComponent implements OnInit {
     return `${y}-${m}-${day}`;
   }
 
-  // ---- ID Normalization & Safe Room Lookup (prevents TS2345 and runtime nulls) ----
+  // ---- ID Normalization & Safe Room Lookup ----
   private normalizeId(id: string | number | null | undefined): string | number | undefined {
     if (id == null) return undefined;
     if (typeof id === 'string' && id.trim() === '') return undefined;
@@ -534,81 +490,39 @@ export class ModifyBookingComponent implements OnInit {
     return room?.capacity ?? room?.maxGuests ?? 10;
   });
 
-  pricePerNight() {
+  // ===== Overlay controls =====
+  openConfirmOverlay() {
+    if (this.form.invalid || this.loading()) return;
+    this.overlayTitle.set('Confirm modification');
+    this.overlayMessage.set('Are you sure you want to modify this booking?');
+    this.overlayKind.set('confirm');
+    this.overlayVisible.set(true);
+  }
+
+  closeOverlay() {
+    if (this.loading()) return; // don't allow closing during processing
+    this.overlayVisible.set(false);
+  }
+
+  private async delay(ms: number) {
+    return new Promise(res => setTimeout(res, ms));
+  }
+
+  // ===== Save flow (overlay confirm -> call API -> overlay buffer/status) =====
+  confirmSave() {
     const b = this.bookingNow();
-    if (!b) return 0;
-    const room: any = this.roomById(b.roomId);
-    return room?.pricePerNight ?? 0;
-  }
-
-  previewNights() {
-    const from = this.form.value.from;
-    const to = this.form.value.to;
-    if (!from || !to) return 0;
-
-    const fromISO = this.toDateOnlyLocal(from);
-    const toISO = this.toDateOnlyLocal(to);
-
-    const n = this.bookings.calcNights(fromISO, toISO);
-    return Math.max(0, n);
-  }
-
-  previewTotal() {
-    return this.previewNights() * this.pricePerNight();
-  }
-
-  deltaAmount(currentTotal: number) {
-    return this.previewTotal() - (currentTotal ?? 0);
-    // positive => additional payment, negative => refund
-  }
-  abs(n: number) { return Math.abs(n); }
-  deltaLabel(currentTotal: number) {
-    const d = this.deltaAmount(currentTotal);
-    if (d > 0) return 'Increase';
-    if (d < 0) return 'Decrease';
-    return 'No change';
-  }
-
-  // save handler: PATCH modify; redirect to pay if difference > 0 (additional payment)
-  // ask user for confirmation BEFORE making the change
-  save() {
-    const b = this.bookingNow();
-    if (!b || this.form.invalid) return;
-
-    // --- Confirmation dialog (native confirm to avoid extra dialog components) ---
-    const from = this.form.value.from ?? null;
-    const to = this.form.value.to ?? null;
-    const guests = Number(this.form.value.guests ?? 1);
-
-    const currentTotal = Number(b.totalAmount ?? 0);
-    const newEstimate = this.previewTotal();
-    const delta = newEstimate - currentTotal;
-
-    const deltaText =
-      delta > 0 ? `Additional payment: ${this.inr(delta)}`
-      : delta < 0 ? `Refund: ${this.inr(Math.abs(delta))}`
-      : 'No price change';
-
-    const confirmText =
-      `Confirm modify?\n\n` +
-      `Check-in: ${this.fmtDate(from)}\n` +
-      `Check-out: ${this.fmtDate(to)}\n` +
-      `Nights: ${this.previewNights()}\n` +
-      `Guests: ${guests}\n\n` +
-      `Current total: ${this.inr(currentTotal)}\n` +
-      `New estimate: ${this.inr(newEstimate)}\n` +
-      `Difference: ${deltaText}\n\n` +
-      `Proceed with modifying this booking?`;
-
-    const ok = window.confirm(confirmText);
-    if (!ok) return;
+    if (!b || this.form.invalid || this.loading()) return;
 
     this.loading.set(true);
+    this.overlayKind.set('processing');
+    this.overlayTitle.set('Saving changes…');
+    this.overlayMessage.set('Please wait while we update your booking.');
+    this.overlayVisible.set(true);
 
+    const guests = Number(this.form.value.guests ?? 1);
     const checkIn = this.bookings.toDateOnly(this.form.value.from!);
     const checkOut = this.bookings.toDateOnly(this.form.value.to!);
 
-    // If you support multiple rooms, push them all. From history we likely have one room.
     const roomIdNum = Number(b.roomId);
     const roomIds = Number.isFinite(roomIdNum) ? [roomIdNum] : [];
 
@@ -622,58 +536,65 @@ export class ModifyBookingComponent implements OnInit {
     };
 
     this.bookings.modifyBooking(b.id, payload).subscribe({
-      next: (res) => {
+      next: async (res) => {
         this.loading.set(false);
 
-        // Backend returns "difference" where negative => refund, positive => addl payment
-        const diffRaw = Number(res.amountDifference ?? 0);
-        const roundedDiff = Math.round(diffRaw * 100) / 100;
+        const msg = (res?.message ?? '').toLowerCase();
+        const paymentId = res?.paymentId ?? null;
+        const amount = Number(res?.amountDifference ?? 0);
 
-        if (roundedDiff > 0) {
-          // Additional payment required
-          this.snack.open(
-            `Additional payment of ${this.inr(roundedDiff)} is required. Redirecting to payment...`,
-            'Close',
-            { duration: 3000 }
-          );
-
-          const pid = res.paymentId;
-          if (!pid) {
-            this.snack.open('Additional payment required but payment reference is missing.', 'Close', { duration: 3500 });
-            return;
-          }
-
-          const url = `/customer/pay?paymentId=${pid}&bookingId=${b.id}&amount=${roundedDiff}`;
-          this.router.navigateByUrl(url);
-          return;
-        }
-
-        if (roundedDiff < 0) {
-          // Refund due
-          const refund = Math.abs(roundedDiff);
-          this.snack.open(
-            res.message || `Refund of ${this.inr(refund)} will be processed to your original payment method.`,
-            'Close',
-            { duration: 3500 }
-          );
+        // ---- Refund flow (use message to decide) ----
+        if (msg.includes('refund')) {
+          // Never redirect to payment for refunds, even if paymentId exists
+          const inrAmount = this.inr(Math.abs(amount));
+          this.overlayKind.set('refund');
+          this.overlayTitle.set('Processing refund…');
+          this.overlayMessage.set(`Initiating refund of ${inrAmount} to your original payment method.`);
+          // 5-second buffer
+          await this.delay(5000);
+          this.overlayKind.set('success');
+          this.overlayTitle.set('Refund completed');
+          this.overlayMessage.set(res?.message || `Refund of ${inrAmount} has been completed.`);
+          // navigate to history
           this.router.navigateByUrl('/customer/history');
           return;
         }
 
-        // No price change
-        this.snack.open(res.message || 'Booking modified successfully (no price change).', 'Close', { duration: 3000 });
+        // ---- Additional payment flow (require BOTH: message indicates + paymentId present) ----
+        if (msg.includes('additional') && msg.includes('payment')) {
+          if (!paymentId) {
+            // Defensive: message says additional payment but no paymentId
+            this.overlayKind.set('error');
+            this.overlayTitle.set('Payment reference missing');
+            this.overlayMessage.set('Additional payment is required but payment reference was not provided by the server.');
+            return;
+          }
+          this.overlayKind.set('payment');
+          this.overlayTitle.set('Additional payment required');
+          this.overlayMessage.set(`Redirecting to complete payment of ${this.inr(Math.abs(amount))}.`);
+          const url = `/customer/pay?paymentId=${paymentId}&bookingId=${b.id}&amount=${Math.abs(amount)}`;
+          this.router.navigateByUrl(url);
+          return;
+        }
+
+        // ---- No price change or generic success ----
+        this.overlayKind.set('success');
+        this.overlayTitle.set('Booking modified');
+        this.overlayMessage.set(res?.message || 'Your booking was updated. No price change.');
         this.router.navigateByUrl('/customer/history');
       },
       error: (err) => {
         this.loading.set(false);
         console.error('[Modify] failed', err);
-        this.snack.open(
-          err?.error?.message ?? err?.error ?? err?.message ?? 'Unable to modify booking. Please try again.',
-          'Close',
-          { duration: 4000 }
-        );
+        this.overlayKind.set('error');
+        this.overlayTitle.set('Unable to modify booking');
+        this.overlayMessage.set(err?.error?.message ?? err?.error ?? err?.message ?? 'Please try again.');
       }
     });
+  }
+
+  goHistory() {
+    this.router.navigateByUrl('/customer/history');
   }
 
   back() { this.router.navigateByUrl('/customer/history'); }
@@ -704,12 +625,8 @@ export class ModifyBookingComponent implements OnInit {
     };
   }
 
-  /** Converts picked local date to yyyy-MM-dd (local midnight), for stable day comparison */
-  private toDateOnlyLocal(d: Date) {
-    const y = d.getFullYear();
-    const m = (d.getMonth() + 1).toString().padStart(2, '0');
-    const day = d.getDate().toString().padStart(2, '0');
-    return `${y}-${m}-${day}`;
+  /** INR currency formatting */
+  private inr(n: number) {
+    return n.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 });
   }
 }
-

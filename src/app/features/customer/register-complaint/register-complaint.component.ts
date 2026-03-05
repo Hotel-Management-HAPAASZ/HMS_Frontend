@@ -1,6 +1,6 @@
 import { Component, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormBuilder, Validators, ReactiveFormsModule } from '@angular/forms';
+import { FormBuilder, Validators, ReactiveFormsModule, FormGroupDirective } from '@angular/forms';
 
 import { AuthService } from '../../../core/services/auth.service';
 import { NewComplaintService } from '../../../core/services/new-complaint.service';
@@ -68,7 +68,7 @@ import { MatDividerModule } from '@angular/material/divider';
         </div>
         <!-- /success banner -->
 
-        <form [formGroup]="form" (ngSubmit)="submit()" class="grid gap-3">
+        <form [formGroup]="form" (ngSubmit)="submit(formDirective)" #formDirective="ngForm" class="grid gap-3">
 
           <!-- Row 1 -->
           <div class="row g-3">
@@ -162,7 +162,7 @@ import { MatDividerModule } from '@angular/material/divider';
 
           <!-- Actions -->
           <div class="d-flex flex-column flex-sm-row gap-2 justify-content-end mt-1">
-            <button type="button" mat-stroked-button class="btn-soft" (click)="reset()">
+            <button type="button" mat-stroked-button class="btn-soft" (click)="reset(formDirective)">
               Cancel
             </button>
 
@@ -259,12 +259,15 @@ export class RegisterComplaintComponent {
     private snack: MatSnackBar
   ) {}
 
-  reset() {
+  reset(formDirective?: FormGroupDirective) {
+    if (formDirective) {
+      formDirective.resetForm();
+    }
     this.form.reset({
       category: '',
       priority: '',
       contactPreference: 'EMAIL',
-      bookingId: null,
+      bookingId: null as unknown as number,
       title: '',
       description: ''
     });
@@ -286,7 +289,7 @@ export class RegisterComplaintComponent {
     this.snack.open('Go to Track page from sidebar to view status', 'OK', { duration: 2500 });
   }
 
-  async submit() {
+  async submit(formDirective: FormGroupDirective) {
     if (this.form.invalid || this.submitting) {
       this.form.markAllAsTouched();
       return;
@@ -320,7 +323,7 @@ export class RegisterComplaintComponent {
       const ref = this.snack.open(`Complaint created • ID: ${created.referenceNumber}`, 'Copy ID', { duration: 6000 });
       ref.onAction().subscribe(() => this.copyId());
 
-      this.reset();
+      this.reset(formDirective);
 
       // Keep the banner for a while
       setTimeout(() => { this.createdReference = null; }, 120000); // auto-hide after 2 mins

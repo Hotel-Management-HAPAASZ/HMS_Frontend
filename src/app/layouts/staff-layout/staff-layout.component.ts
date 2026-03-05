@@ -45,11 +45,6 @@ import { MatButtonModule } from '@angular/material/button';
           <mat-icon class="nav-icon">support_agent</mat-icon>
           <span class="nav-text">Complaints</span>
         </a>
-
-        <a mat-list-item routerLink="/staff/housekeeping" routerLinkActive="active-link">
-          <mat-icon class="nav-icon">cleaning_services</mat-icon>
-          <span class="nav-text">Housekeeping</span>
-        </a>
       </mat-nav-list>
 
       <!-- Sidebar footer user chip -->

@@ -7,6 +7,7 @@ const API_BASE = 'http://localhost:8080/api/bookings';
 export type BookingRow = {
   id: number | string;
   roomId: string | number | null;
+  roomNumber: string | null;  // actual room number e.g. S-102
   fromDate: string;
   toDate: string;
   totalAmount: number;
@@ -77,6 +78,7 @@ export class BookingService {
         const mapped: BookingRow = {
           id: row.id,
           roomId: row.roomId ?? null,
+          roomNumber: row.roomNumber ?? null,
           fromDate: row.checkInDate,
           toDate: row.checkOutDate,
           totalAmount: row.totalAmount,
@@ -117,7 +119,7 @@ export class BookingService {
       responseType: 'text'
     });
   }
-  
+
 list(): BookingRow[] {
   return this.userBookings();
 }
@@ -164,9 +166,12 @@ list(): BookingRow[] {
 
   /* ----------------- Mapper ----------------- */
   private mapHistoryItem(b: any): BookingRow {
+    const nums: string[] = b.roomNumbers ?? [];
+    const types: string[] = b.roomTypes ?? [];
     return {
       id: b.bookingId,
-      roomId: b.roomId ?? b.roomTypes?.[0] ?? '',
+      roomId: b.roomId ?? types?.[0] ?? '',
+      roomNumber: nums?.[0] ?? null,   // e.g. "S-102"
       fromDate: b.checkIn,
       toDate: b.checkOut,
       totalAmount: b.totalAmount,

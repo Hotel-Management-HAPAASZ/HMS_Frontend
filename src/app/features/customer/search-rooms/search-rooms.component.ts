@@ -554,17 +554,14 @@ export class SearchRoomsComponent {
     const adults = v.guests!;
     const children = 0;
 
-    if (!v.type) {
-      this.form.get('type')?.setErrors({ required: true });
-      return;
-    }
+    const roomType = (v.type || 'ALL_ROOMS').toUpperCase();
 
     this.rooms.searchAvailableRooms({
       from: v.from!,
       to: v.to!,
       adults,
       children,
-      roomType: v.type!
+      roomType: roomType
     }).subscribe({
       next: (rooms) => {
         const minPrice = v.minPrice ?? null;

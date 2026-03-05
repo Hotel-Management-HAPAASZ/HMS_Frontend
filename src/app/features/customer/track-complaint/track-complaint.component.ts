@@ -132,7 +132,7 @@ export type UIComplaint = {
 
           <!-- EMPTY STATE -->
           <div *ngIf="!loading() && filteredList().length === 0" class="empty text-center py-5">
-            <div class="empty-ico fs-1 mb-2">📝</div>
+            <div class="empty-ico fs-1 mb-3">📝</div>
             <div class="fw-bold fs-5">No complaints found</div>
             <div class="text-muted small mt-1">
               Try clearing filters or register a new complaint if needed.
@@ -151,10 +151,10 @@ export type UIComplaint = {
                        <mat-icon style="font-size: 18px; width: 18px; height: 18px;">receipt_long</mat-icon>
                     </span>
                     <h6 class="fw-bold mb-0 text-truncate">{{ c.subject || '—' }}</h6>
-                    <span class="text-muted small ms-2">#{{ c.id }}</span>
+                    <span class="text-muted ms-2" style="font-size: 0.85rem;">#{{ c.id }}</span>
                   </div>
 
-                  <div class="d-flex flex-wrap gap-3 text-muted small mb-3">
+                  <div class="d-flex flex-wrap gap-3 text-muted mb-3" style="font-size: 0.82rem;">
                     <span class="d-flex align-items-center gap-1">
                       <mat-icon style="font-size: 16px; width: 16px; height: 16px;">schedule</mat-icon>
                       Created: {{ formatDate(c.createdAt) }}
@@ -165,11 +165,11 @@ export type UIComplaint = {
                     </span>
                   </div>
 
-                  <div class="complaint-msg bg-light p-3 rounded" *ngIf="editingId() !== c.id">
-                    <p class="mb-1">{{ c.message || 'No description provided.' }}</p>
-                    <div class="text-muted small mt-2">
-                       <mat-icon style="font-size: 14px; width: 14px; height: 14px; vertical-align: bottom;">contact_phone</mat-icon>
-                       Preferred Contact: <strong>{{ c.contactPreference }}</strong>
+                  <div class="complaint-msg bg-light p-3 rounded mt-3 mb-2" *ngIf="editingId() !== c.id">
+                    <p class="mb-1 text-secondary">{{ c.message || 'No description provided.' }}</p>
+                    <div class="text-muted mt-2 d-flex align-items-center gap-1" style="font-size: 0.85rem;">
+                       <mat-icon style="font-size: 14px; width: 14px; height: 14px; color: var(--app-primary);">contact_phone</mat-icon>
+                       <span>Preferred Contact: <strong class="text-dark">{{ c.contactPreference }}</strong></span>
                     </div>
                   </div>
 
@@ -212,10 +212,10 @@ export type UIComplaint = {
                 <!-- RIGHT SIDE (STATUS & ACTIONS) -->
                 <div class="d-flex flex-column align-items-end justify-content-between gap-3 text-end" style="min-width: 140px;">
                   <div>
-                    <span class="badge rounded-pill px-3 py-2 status-badge" [ngClass]="statusClass(normalizeStatus(c.status))">
+                    <span class="badge rounded-pill px-3 py-2 status-badge shadow-sm" [ngClass]="statusClass(normalizeStatus(c.status))">
                       {{ normalizeStatus(c.status) | titlecase }}
                     </span>
-                    <div class="text-muted small mt-2">
+                    <div class="text-muted mt-2 fw-medium text-center" style="font-size: 0.85rem;">
                       {{ statusNote(normalizeStatus(c.status)) }}
                     </div>
                   </div>
@@ -276,9 +276,14 @@ export type UIComplaint = {
     }
     .app-card {
       background: white;
-      border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-      border: 1px solid rgba(0,0,0,0.05);
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+      border: 1px solid rgba(0,0,0,0.06);
+      transition: box-shadow 0.2s ease, transform 0.2s ease;
+    }
+    .complaint-card:hover {
+      box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+      transform: translateY(-2px);
     }
     .hero {
       background: linear-gradient(to right, #ffffff, #f8faff);
@@ -298,9 +303,10 @@ export type UIComplaint = {
       gap: 6px;
       padding: 8px 16px;
       border-radius: 20px;
-      background: #f0f4ff;
+      background: linear-gradient(135deg, #f0f4ff, #e6ecfc);
       border: 1px solid #d6e2ff;
       color: #3f51b5;
+      box-shadow: 0 2px 8px rgba(63, 81, 181, 0.1);
     }
     .filter-field {
       width: 200px;
@@ -330,24 +336,24 @@ export type UIComplaint = {
       border: 1px solid transparent;
     }
     .st-open {
-      background-color: #fff3cd;
-      color: #856404;
-      border-color: #ffeeba;
+      background-color: #fff8e6;
+      color: #b38600;
+      border-color: #ffeba1;
     }
     .st-progress {
-      background-color: #e2e3e5;
-      color: #383d41;
-      border-color: #d6d8db;
+      background-color: #f1f3f5;
+      color: #495057;
+      border-color: #dee2e6;
     }
     .st-resolved {
-      background-color: #d4edda;
-      color: #155724;
-      border-color: #c3e6cb;
+      background-color: #e6fcf5;
+      color: #0ca678;
+      border-color: #b2f2bb;
     }
     .st-closed {
-      background-color: #cce5ff;
-      color: #004085;
-      border-color: #b8daff;
+      background-color: #e7f5ff;
+      color: #1971c2;
+      border-color: #a5d8ff;
     }
   `]
 })
@@ -454,6 +460,15 @@ export class TrackComplaintComponent {
         last: pageResp.last
       });
 
+      const parseDate = (val: any) => {
+        if (Array.isArray(val)) {
+          const [y, m, d, h = 0, min = 0, s = 0] = val;
+          const dt = new Date(y, m - 1, d, h, min, s);
+          return Number.isFinite(dt.getTime()) ? dt.toISOString() : null;
+        }
+        return val ? String(val) : null;
+      };
+
       // Map backend items to your UI model
       const mapped = (pageResp.content ?? []).map((r: any): UIComplaint => {
         return {
@@ -462,8 +477,8 @@ export class TrackComplaintComponent {
           message: String(r.description ?? ''),
           contactPreference: r.contactPreference as 'CALL' | 'EMAIL',
           status: this.normalizeStatus(r.status),
-          createdAt: String(r.createdAt),
-          updatedAt: String(r.updatedAt || null)
+          createdAt: String(parseDate(r.createdAt) || ''),
+          updatedAt: String(parseDate(r.updatedAt) || '')
         };
       });
 

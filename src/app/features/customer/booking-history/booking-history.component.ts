@@ -7,6 +7,7 @@ import {
   FormGroup,
   ReactiveFormsModule
 } from '@angular/forms';
+import { generateInvoicePdf, triggerDownload } from '../../../shared/invoice-pdf';
 
 import { startWith } from 'rxjs';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -619,16 +620,11 @@ export class BookingHistoryComponent {
     this.page.set({ pageIndex: 0, pageSize: this.page().pageSize });
   }
 
-  // Room label with fallback: Room X if name not resolvable
+  // Room label: use actual room number from backend, fallback to roomType, then Room N
   roomLabel(b: any, index: number) {
-    const label = this.roomName(b?.roomId);
-    return label || `Room ${index + 1}`;
-  }
-
-  // Accept string | number
-  roomName(roomId: string | number) {
-    const id = typeof roomId === 'number' ? String(roomId) : roomId;
-    return this.rooms.byId(id)?.name ?? '';
+    if (b?.roomNumber) return b.roomNumber;
+    if (b?.roomId && typeof b.roomId === 'string' && b.roomId.includes('-')) return b.roomId;
+    return `Room ${index + 1}`;
   }
 
   // Status chip classes with background colors
@@ -673,8 +669,23 @@ export class BookingHistoryComponent {
     return true;
   }
 
-  invoice(id: string) {
-    this.router.navigateByUrl(`/customer/invoice?bookingId=${id}`);
+  async invoice(id: string) {
+    this.snack.open('Preparing invoice...', undefined, { duration: 2000 });
+    try {
+      const url = `http://localhost:8080/api/invoices/booking/${id}`;
+      const res = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+
+      const data = await res.json();
+      const blob = await generateInvoicePdf(data);
+
+      const fileName = data?.invoiceNumber ? `Invoice_${data.invoiceNumber}.pdf` : `Invoice_Booking_${id}.pdf`;
+      triggerDownload(blob, fileName);
+      this.snack.open('Invoice downloaded successfully', 'Close', { duration: 3000 });
+    } catch (err) {
+      console.error(err);
+      this.snack.open('Invoice could not be loaded or generated.', 'Close', { duration: 3000 });
+    }
   }
 
   modify(id: string | number) {

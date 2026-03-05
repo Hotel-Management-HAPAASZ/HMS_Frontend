@@ -6,6 +6,7 @@ import { MatCardModule } from '@angular/material/card';
 import { InvoiceService, InvoiceResponse } from '../../../core/services/invoice.service';
 import { lastValueFrom } from 'rxjs';
 import { generateInvoicePdf, triggerDownload } from '../../../shared/invoice-pdf';
+import { ToastService } from '../../../core/services/toast.service';
 
 /** Render-friendly view model */
 type UiInvoice = Partial<{
@@ -23,6 +24,8 @@ type UiInvoice = Partial<{
   transactionId: string;
   gstin: string;
   roomName: string;
+  /** Room numbers combined for display */
+  roomNo: string;
   fromDate: string | Date;
   toDate: string | Date;
   nights: number;
@@ -91,8 +94,9 @@ type UiInvoice = Partial<{
               <div *ngIf="inv?.dueAt">Due</div>
               <div class="text-end" *ngIf="inv?.dueAt">{{ inv?.dueAt | date:'mediumDate' }}</div>
 
-              <div>Booking ID</div>
-              <div class="text-end">{{ inv?.bookingId || bookingId() || '—' }}</div>
+              <!-- CHANGED: Room No instead of Booking ID -->
+              <div>Room No</div>
+              <div class="text-end">{{ inv?.roomNo || '—' }}</div>
 
               <div *ngIf="inv?.paymentMethod">Payment</div>
               <div class="text-end" *ngIf="inv?.paymentMethod">{{ inv?.paymentMethod }}</div>
@@ -266,6 +270,7 @@ export class InvoiceComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private invoices = inject(InvoiceService);
+  private toast = inject(ToastService);
 
   // store any backend error to show in the empty template
   private _errorMsg = signal<string | null>(null);
@@ -331,34 +336,38 @@ export class InvoiceComponent implements OnInit {
 
   async download() {
     const src = this.raw();
-    if (!src) { alert('Invoice not loaded yet.'); return; }
+    if (!src) { this.toast.showError('The invoice has not loaded yet. Please wait a moment and try again.'); return; }
 
     try {
       const blob = await generateInvoicePdf({
-        invoiceNumber: src.invoiceNumber,
-        bookingId: src.bookingId,
-        hotelName: src.hotelName,
-        hotelAddress: src.hotelAddress,
-        hotelEmail: src.hotelEmail,
-        hotelSupportNumber: src.hotelSupportNumber,
-        customerName: src.customerName,
-        customerEmail: src.customerEmail,
-        customerMobile: src.customerMobile,
-        checkInDate: src.checkInDate,
-        checkOutDate: src.checkOutDate,
-        rooms: src.rooms,
-        baseAmount: src.baseAmount,
-        taxAmount: src.taxAmount,
-        serviceCharges: src.serviceCharges,
-        totalAmount: src.totalAmount,
-        paymentMethod: src.paymentMethod,
-        transactionId: src.transactionId
+        // null-safe coalescing to satisfy strict types
+        invoiceNumber: src.invoiceNumber ?? undefined,
+        bookingId: src.bookingId ?? undefined, // kept for compatibility (not printed)
+        hotelName: src.hotelName ?? undefined,
+        hotelAddress: src.hotelAddress ?? undefined,
+        hotelEmail: src.hotelEmail ?? undefined,
+        hotelSupportNumber: src.hotelSupportNumber ?? undefined,
+        customerName: src.customerName ?? undefined,
+        customerEmail: src.customerEmail ?? undefined,
+        customerMobile: src.customerMobile ?? undefined,
+        checkInDate: src.checkInDate ?? undefined,
+        checkOutDate: src.checkOutDate ?? undefined,
+        rooms: src.rooms ?? [],
+        baseAmount: src.baseAmount ?? 0,
+        taxAmount: src.taxAmount ?? 0,
+        // 👉 Force service charges to 0 for now
+        serviceCharges: 0,
+        totalAmount: src.totalAmount ?? 0,
+        paymentMethod: src.paymentMethod ?? undefined,
+        transactionId: src.transactionId ?? undefined, // null-safe
+        // Pass room numbers so PDF prints them
+        roomNumbers: extractRoomNumbers(src)
       });
-      const fileName = `Invoice_${src.invoiceNumber ?? src.bookingId}.pdf`;
+      const fileName = `Invoice_${(src.invoiceNumber ?? src.bookingId) || 'Invoice'}.pdf`;
       triggerDownload(blob, fileName);
     } catch (err) {
       console.error('[Invoice] PDF generation failed', err);
-      alert('Failed to generate invoice PDF. Please try again.');
+      this.toast.showError('We failed to generate the invoice PDF. Please try again.');
     }
   }
 }
@@ -368,9 +377,12 @@ function mapToUiInvoice(inv: InvoiceResponse): UiInvoice {
   const nights = diffNights(inv.checkInDate, inv.checkOutDate);
   const roomName = (inv.roomTypes && inv.roomTypes.length)
     ? inv.roomTypes.join(', ')
-    : (inv.rooms && inv.rooms.length ? inv.rooms.map(r => r.roomType).filter(Boolean).join(', ') : undefined);
+    : (inv.rooms && inv.rooms.length ? inv.rooms.map(r => (r as any)?.roomType).filter(Boolean).join(', ') : undefined);
 
   const guests = inv.numberOfGuests ?? ((inv.adults ?? 0) + (inv.children ?? 0));
+
+  // human-friendly room number(s)
+  const roomNo = formatRoomNumbers(inv);
 
   return {
     invoiceNo: inv.invoiceNumber ?? undefined,
@@ -379,10 +391,12 @@ function mapToUiInvoice(inv: InvoiceResponse): UiInvoice {
     customerName: inv.customerName ?? undefined,
     email: inv.customerEmail ?? undefined,
     phone: inv.customerMobile ?? undefined,
-    bookingId: inv.bookingId ?? undefined,
+    // bookingId intentionally not shown in UI anymore
+    bookingId: inv.bookingId ?? undefined, // retained in VM if needed elsewhere
     paymentMethod: inv.paymentMethod ?? undefined,
     transactionId: inv.transactionId ?? undefined,
     roomName,
+    roomNo,
     fromDate: inv.checkInDate ?? undefined,
     toDate: inv.checkOutDate ?? undefined,
     nights: nights ?? undefined,
@@ -390,6 +404,7 @@ function mapToUiInvoice(inv: InvoiceResponse): UiInvoice {
     currency: 'INR',
     subtotal: inv.baseAmount ?? undefined,
     taxes: inv.taxAmount ?? undefined,
+    // show fees if present; otherwise omit (PDF forces 0 separately)
     fees: inv.serviceCharges ?? undefined,
     discount: undefined,
     amount: inv.totalAmount ?? undefined,
@@ -405,4 +420,39 @@ function diffNights(from?: string, to?: string): number | undefined {
   if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return undefined;
   const ms = d2.getTime() - d1.getTime();
   return ms > 0 ? Math.round(ms / (1000 * 60 * 60 * 24)) : 0;
+}
+
+/** Prefer common top-level keys; fallback to rooms[*] candidates */
+function formatRoomNumbers(inv: InvoiceResponse): string {
+  const list = extractRoomNumbers(inv);
+  return list.length ? list.map(String).join(', ') : '-';
+}
+
+/** Extract raw array for PDF use with broad fallbacks */
+function extractRoomNumbers(inv: any): (string | number)[] {
+  // Top-level common variants
+  const topCandidates = ['roomNumbers', 'roomNumber', 'roomNos', 'roomNo'];
+  for (const key of topCandidates) {
+    const v = inv?.[key];
+    if (Array.isArray(v) && v.length) return v.filter(Boolean);
+    if ((typeof v === 'string' || typeof v === 'number') && v) return [v];
+  }
+
+  // From rooms array — try common shapes
+  const rooms: any[] = Array.isArray(inv?.rooms) ? inv.rooms : [];
+  if (!rooms.length) return [];
+
+  const collected: (string | number)[] = [];
+
+  for (const r of rooms) {
+    // Direct on room item
+    const direct = r?.roomNumber ?? r?.roomNo ?? r?.number ?? r?.no;
+    if (direct) { collected.push(direct); continue; }
+
+    // Nested room object inside each item
+    const nested = r?.room?.roomNumber ?? r?.room?.roomNo ?? r?.room?.number ?? r?.room?.no;
+    if (nested) { collected.push(nested); continue; }
+  }
+
+  return collected.filter(Boolean);
 }

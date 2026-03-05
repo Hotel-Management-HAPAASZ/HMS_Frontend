@@ -139,3 +139,29 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/* =============================
+   CUSTOM SNACKBAR STYLES
+============================= */
+.success-snackbar {
+  background-color: var(--app-success) !important;
+  color: #fff !important;
+  font-weight: 500;
+  border-radius: 8px !important;
+}
+
+.success-snackbar .mat-mdc-button {
+  color: #fff !important;
+}
+
+.error-snackbar {
+  background-color: var(--app-danger) !important;
+  color: #fff !important;
+  font-weight: 500;
+  border-radius: 8px !important;
+}
+
+.error-snackbar .mat-mdc-button {
+  color: #fff !important;
+}
+

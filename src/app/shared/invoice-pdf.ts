@@ -1,4 +1,3 @@
-// src/app/shared/invoice-pdf.ts
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 
@@ -12,7 +11,6 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
 // Embed /assets/Designer.png (or any image at that path). Tries PNG then JPG.
 async function tryEmbedLogo(pdfDoc: PDFDocument, pageWidth: number, pageHeight: number) {
   try {
-    // Updated path as requested
     const res = await fetch('assets/Designer.png');
     if (!res.ok) throw new Error(`Logo HTTP ${res.status}`);
     const ct = res.headers.get('content-type') || '';
@@ -24,7 +22,6 @@ async function tryEmbedLogo(pdfDoc: PDFDocument, pageWidth: number, pageHeight: 
     } else if (ct.includes('jpeg') || ct.includes('jpg')) {
       img = await pdfDoc.embedJpg(bytes);
     } else {
-      // Unknown type: try PNG then JPG
       try { img = await pdfDoc.embedPng(bytes); }
       catch { img = await pdfDoc.embedJpg(bytes); }
     }
@@ -46,7 +43,28 @@ async function tryEmbedLogo(pdfDoc: PDFDocument, pageWidth: number, pageHeight: 
   }
 }
 
-export async function generateInvoicePdf(invoice: any): Promise<Blob> {
+export async function generateInvoicePdf(invoice: {
+  invoiceNumber?: string|number;
+  bookingId?: string|number; // kept for compatibility but not printed
+  hotelName?: string;
+  hotelAddress?: string;
+  hotelEmail?: string;
+  hotelSupportNumber?: string;
+  customerName?: string;
+  customerEmail?: string;
+  customerMobile?: string;
+  checkInDate?: string;
+  checkOutDate?: string;
+  rooms?: any[];
+  baseAmount?: number|string;
+  taxAmount?: number|string;
+  serviceCharges?: number|string;
+  totalAmount?: number|string;
+  paymentMethod?: string;
+  transactionId?: string;
+  /** Room numbers to print at the top */
+  roomNumbers?: (string|number)[];
+}): Promise<Blob> {
   const pageWidth = 600;
   const pageHeight = 780;
 
@@ -59,10 +77,9 @@ export async function generateInvoicePdf(invoice: any): Promise<Blob> {
   let bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   let rupee = '₹';
   try {
-    // If this TTF exists at /assets/fonts, we can render ₹ correctly.
     const notoBytes = await fetchBytes('assets/fonts/NotoSans-Regular.ttf');
     font = await pdfDoc.embedFont(notoBytes, { subset: true });
-    bold = font; // keep simple; same font used for headings
+    bold = font;
   } catch (e) {
     console.warn('[invoice-pdf] Unicode font missing; falling back to Helvetica. Replacing ₹ with INR.', e);
     rupee = 'INR ';
@@ -78,7 +95,7 @@ export async function generateInvoicePdf(invoice: any): Promise<Blob> {
   let y = 750;
 
   // HEADER
-  page.drawText(invoice.hotelName || 'Hotel', { x: 40, y, size: 20, font: bold, color: rgb(0, 0, 0) });
+  page.drawText(String(invoice.hotelName || 'Hotel'), { x: 40, y, size: 20, font: bold, color: rgb(0, 0, 0) });
   y -= 25;
   if (invoice.hotelAddress) { page.drawText(String(invoice.hotelAddress), { x: 40, y, size: 12, font }); y -= 15; }
   page.drawText(`Email: ${invoice.hotelEmail ?? '-'}`, { x: 40, y, size: 12, font }); y -= 15;
@@ -91,8 +108,14 @@ export async function generateInvoicePdf(invoice: any): Promise<Blob> {
   // BASIC INFO
   page.drawText(`Invoice #: ${invoice.invoiceNumber ?? '-'}`, { x: 40, y, size: 12, font });
   y -= 15;
-  page.drawText(`Booking ID: ${invoice.bookingId ?? '-'}`, { x: 40, y, size: 12, font });
+
+  // Print Room No instead of Booking ID
+  const roomNoText = Array.isArray(invoice.roomNumbers) && invoice.roomNumbers.length
+    ? String(invoice.roomNumbers.join(', '))
+    : '-';
+  page.drawText(`Room No: ${roomNoText}`, { x: 40, y, size: 12, font });
   y -= 15;
+
   page.drawText(`Payment Method: ${invoice.paymentMethod ?? '-'}`, { x: 40, y, size: 12, font });
   y -= 15;
   page.drawText(`Transaction ID: ${invoice.transactionId ?? '-'}`, { x: 40, y, size: 12, font });
@@ -122,7 +145,15 @@ export async function generateInvoicePdf(invoice: any): Promise<Blob> {
   if (Array.isArray(invoice.rooms)) {
     invoice.rooms.forEach((r: any) => {
       const price = r?.roomPrice ?? '-';
-      page.drawText(`• ${r?.roomType ?? '-'}  |  ${rupee}${price}`, { x: 50, y, size: 12, font });
+      const type  = r?.roomType ?? '-';
+
+      // robust room number detection
+      const num =
+        r?.roomNumber ?? r?.roomNo ?? r?.number ?? r?.no ??
+        r?.room?.roomNumber ?? r?.room?.roomNo ?? r?.room?.number ?? r?.room?.no;
+
+      const numText = num ? ` (No: ${num})` : '';
+      page.drawText(`• ${type}${numText}  |  ${rupee}${price}`, { x: 50, y, size: 12, font });
       y -= 15;
     });
   }
@@ -136,13 +167,15 @@ export async function generateInvoicePdf(invoice: any): Promise<Blob> {
   y -= 15;
   page.drawText(`Tax: ${rupee}${invoice.taxAmount ?? '-'}`, { x: 40, y, size: 12, font });
   y -= 15;
-  page.drawText(`Service Charges: ${rupee}${invoice.serviceCharges ?? '-'}`, { x: 40, y, size: 12, font });
+
+  // serviceCharges is already forced to 0 by caller for now
+  page.drawText(`Service Charges: ${rupee}${invoice.serviceCharges ?? 0}`, { x: 40, y, size: 12, font });
   y -= 20;
+
   page.drawText(`Total: ${rupee}${invoice.totalAmount ?? '-'}`, { x: 40, y, size: 14, font: bold });
 
-  // Save (Angular strict-friendly)
-  const pdfBytes = await pdfDoc.save();      // Uint8Array
-  const clean = new Uint8Array(pdfBytes);    // ensure proper ArrayBuffer
+  const pdfBytes = await pdfDoc.save();
+  const clean = new Uint8Array(pdfBytes);
   return new Blob([clean.buffer], { type: 'application/pdf' });
 }
 

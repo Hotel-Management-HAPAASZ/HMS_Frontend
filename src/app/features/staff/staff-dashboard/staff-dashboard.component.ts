@@ -121,15 +121,6 @@ import { NewComplaintService } from '../../../core/services/new-complaint.servic
                 <div class="action-go">›</div>
               </a>
 
-              <a routerLink="/staff/housekeeping" class="action-tile">
-                <div class="action-ico">🧹</div>
-                <div>
-                  <div class="action-title">Manage Housekeeping</div>
-                  <div class="action-sub">Rooms, tasks & schedules</div>
-                </div>
-                <div class="action-go">›</div>
-              </a>
-
               <a routerLink="/staff/dashboard" class="action-tile">
                 <div class="action-ico">📊</div>
                 <div>

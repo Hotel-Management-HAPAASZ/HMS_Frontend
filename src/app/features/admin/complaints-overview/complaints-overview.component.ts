@@ -278,7 +278,7 @@ function resolutionNoteValidator(): ValidatorFn {
               <ng-container matColumnDef="subject">
                 <th mat-header-cell *matHeaderCellDef>Subject</th>
                 <td mat-cell *matCellDef="let c">
-                  <div class="fw-semibold">{{ c.subject || '—' }}</div>
+                <div class="fw-semibold">{{ c.title || c.subject || '—' }}</div>
                   <div class="small text-muted" *ngIf="hasCategory(c)">{{ metaOf(c.id).category }}</div>
                 </td>
               </ng-container>
@@ -316,7 +316,7 @@ function resolutionNoteValidator(): ValidatorFn {
               <ng-container matColumnDef="assignee">
                 <th mat-header-cell *matHeaderCellDef>Assignee</th>
                 <td mat-cell *matCellDef="let c">
-                  <div class="cell-center">{{ displayAssignee(c.id) }}</div>
+                  <div class="cell-center">{{ displayAssignee(c) }}</div>
                 </td>
               </ng-container>
 
@@ -587,7 +587,8 @@ export class ComplaintsOverviewComponent {
 
   // ---- Edit form ----
   showForm = false;
-  editingId: string | number | null = null;
+  editingId: string | number | null = null;       // referenceNumber or fallback id (for meta)
+  editingNumericId: number | null = null;          // always the numeric DB id for API calls
   editingUserId: string | number | null = null;
 
   editForm: FormGroup<{
@@ -644,17 +645,17 @@ export class ComplaintsOverviewComponent {
         }
       } catch { /* staff load is non-critical */ }
 
-      // ensure metas have updatedAt
+      // ensure metas have updatedAt and sync assignee
       for (const c of this.rows) {
         const rowId = c.referenceNumber ?? c.id;
         const m = this.metaOf(rowId);
-        if (!m.updatedAt) {
-          this.setMeta(rowId, { updatedAt: c.createdAt ?? new Date().toISOString(), priority: c.priority || m.priority || 'MEDIUM' });
-        } else {
-          if (c.priority && !m.priority) {
-            this.setMeta(rowId, { priority: c.priority });
-          }
-        }
+
+        // Sync assignee and priority from API to local meta
+        this.setMeta(rowId, {
+          updatedAt: c.updatedAt ?? c.createdAt ?? m.updatedAt ?? new Date().toISOString(),
+          priority: c.priority || m.priority || 'MEDIUM',
+          assignedToId: c.assignedUserId ?? m.assignedToId
+        });
       }
 
       this.dataSource.data = this.rows;
@@ -712,8 +713,11 @@ export class ComplaintsOverviewComponent {
 
   displayCustomer(userId: string | number | null | undefined): string {
     if (userId === undefined || userId === null) return 'Customer';
-    // NEW: constant-time lookup, no repeated service calls
-    return this.userNameCache.get(userId) ?? this.users.byId?.(userId as any)?.fullName ?? 'Customer';
+    // Check staff cache first, then fall back to user service
+    const cached = this.userNameCache.get(userId);
+    if (cached) return cached;
+    const byService = (this.users as any).byId?.(userId as any);
+    return byService?.fullName ?? byService?.userName ?? byService?.email ?? `Customer #${userId}`;
   }
 
   hasCategory(c: any): boolean { return !!this.metaOf(c.referenceNumber ?? c.id).category; }
@@ -726,9 +730,13 @@ export class ComplaintsOverviewComponent {
     this.metas.set(id, { ...cur, ...patch });
   }
 
-  displayAssignee(id: string | number): string {
-    const assignedId = this.metaOf(id).assignedToId;
+  displayAssignee(c: any): string {
+    if (c.assignedUserName) return c.assignedUserName;
+
+    const rowId = c.referenceNumber ?? c.id;
+    const assignedId = this.metaOf(rowId).assignedToId || c.assignedUserId;
     if (!assignedId) return '—';
+
     // Use cache if available, fall back to service
     return this.userNameCache.get(assignedId) ?? (this.users as any).byId?.(assignedId)?.fullName ?? String(assignedId);
   }
@@ -760,6 +768,7 @@ export class ComplaintsOverviewComponent {
   startEdit(c: any) {
     const rowId = c.referenceNumber ?? c.id;
     this.editingId = rowId;
+    this.editingNumericId = c.id != null ? Number(c.id) : null;  // numeric DB id
     this.editingUserId = c.userId ?? c.customerId ?? null;
 
     const m = this.metaOf(rowId);
@@ -789,7 +798,7 @@ export class ComplaintsOverviewComponent {
       return;
     }
     const v = this.editForm.getRawValue();
-    const complaintId = Number(this.editingId);
+    const complaintId = this.editingNumericId ?? Number(String(this.editingId).replace(/\D/g, ''));
 
     try {
       // Update status via admin API

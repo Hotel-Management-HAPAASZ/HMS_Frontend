@@ -22,6 +22,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { RoomService } from '../../../core/services/room.service';
 import { Room } from '../../../core/models/models';
 import { AmenityDto, AmenityService } from '../../../core/services/amenity.service';
+import { ToastService } from '../../../core/services/toast.service';
 
 type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
 
@@ -108,7 +109,7 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
           <mat-error *ngIf="fc.maxGuests.hasError('required')">Required</mat-error>
           <mat-error *ngIf="fc.maxGuests.hasError('min')">Min 1</mat-error>
           <mat-error *ngIf="fc.maxGuests.hasError('max')">Max 12</mat-error>
-       
+
         </mat-form-field>
       </div>
 
@@ -272,7 +273,8 @@ export class ManageRoomsComponent {
   constructor(
     private fb: NonNullableFormBuilder,
     private roomService: RoomService,
-    private amenityService: AmenityService
+    private amenityService: AmenityService,
+    private toast: ToastService
   ) {}
 
   // Strongly-typed controls (name, size, bedType removed)
@@ -374,7 +376,7 @@ export class ManageRoomsComponent {
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith('.csv')) {
-      alert('Please select a .csv file.');
+      this.toast.showError('Invalid file format. Please select a valid .csv file.');
       input.value = '';
       return;
     }
@@ -383,10 +385,11 @@ export class ManageRoomsComponent {
       const result = await this.roomService.bulkUpload(file);
       console.log('Bulk upload result:', result);
 
-      alert(`Bulk upload completed.
-Created: ${result.createdRoomIds?.length ?? 0},
-Updated: ${result.updatedCount ?? 0},
-Errors: ${result.failureCount ?? 0}`);
+      const created = result.createdRoomIds?.length ?? 0;
+      const updated = result.updatedCount ?? 0;
+      const errors = result.failureCount ?? 0;
+
+      this.toast.showSuccess(`Bulk upload completed. Created: ${created}, Updated: ${updated}, Errors: ${errors}`, 5000);
 
       // Clear file input
       input.value = '';
@@ -396,7 +399,7 @@ Errors: ${result.failureCount ?? 0}`);
       this.refresh();
     } catch (err) {
       console.error(err);
-      alert('Bulk upload failed');
+      this.toast.showError('Bulk upload failed. Please verify your CSV format and try again.');
       input.value = '';
     }
   }
