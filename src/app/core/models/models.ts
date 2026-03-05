@@ -20,6 +20,8 @@ export interface Room {
   maxGuests: number;
   amenities: string[];
   active: boolean;
+  availabilityStatus?: string;
+  unavailableUntil?: string; // ISO or date string
 }
 
 export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'PAID';

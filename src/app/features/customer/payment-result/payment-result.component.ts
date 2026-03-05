@@ -19,10 +19,13 @@ import { ToastService } from '../../../core/services/toast.service';
     </div>
 
     <!-- TITLE -->
-    <h1 class="heading">Payment Successful</h1>
+    <h1 class="heading">
+      {{ mode() === 'card' ? 'Payment Successful' : 'Booking Received' }}
+    </h1>
     <p class="subheading">
-      Your payment has been processed securely.  
-      Thank you for choosing our service!
+      {{ mode() === 'card'
+          ? 'Your payment has been processed securely. Thank you for choosing our service!'
+          : 'Your booking has been received and is pending approval (CASH/UPI). Please pay at hotel if not already done.' }}
     </p>
 
     <!-- DETAILS -->
@@ -213,6 +216,7 @@ export class PaymentResultComponent {
 
   bookingId = computed(() => this.route.snapshot.queryParamMap.get('bookingId') ?? '');
   paymentId = computed(() => this.route.snapshot.queryParamMap.get('paymentId') ?? '');
+  mode = computed(() => this.route.snapshot.queryParamMap.get('mode') ?? 'card');
 
   async downloadInvoice() {
   const bookingId = this.bookingId();

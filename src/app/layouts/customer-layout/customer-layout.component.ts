@@ -31,34 +31,31 @@ import { MatButtonModule } from '@angular/material/button';
 
       <!-- Nav -->
       <mat-nav-list class="nav">
-        <a mat-list-item
-           routerLink="/customer/dashboard"
-           routerLinkActive="active-link"
-           [routerLinkActiveOptions]="{ exact: true }">
-          <mat-icon class="nav-icon">dashboard</mat-icon>
-          <span class="nav-text">Dashboard</span>
+        <a mat-list-item routerLink="/customer/dashboard" routerLinkActive="active-link" [routerLinkActiveOptions]="{ exact: true }">
+          <mat-icon matListItemIcon class="nav-icon">dashboard</mat-icon>
+          <span matListItemTitle class="nav-text">Dashboard</span>
         </a>
 
         <a mat-list-item routerLink="/customer/search" routerLinkActive="active-link">
-          <mat-icon class="nav-icon">search</mat-icon>
-          <span class="nav-text">Search Rooms</span>
+          <mat-icon matListItemIcon class="nav-icon">search</mat-icon>
+          <span matListItemTitle class="nav-text">Search Rooms</span>
         </a>
 
         <a mat-list-item routerLink="/customer/history" routerLinkActive="active-link">
-          <mat-icon class="nav-icon">history</mat-icon>
-          <span class="nav-text">Booking History</span>
+          <mat-icon matListItemIcon class="nav-icon">history</mat-icon>
+          <span matListItemTitle class="nav-text">Booking History</span>
         </a>
 
         <div class="nav-section">Support</div>
 
         <a mat-list-item routerLink="/customer/complaint" routerLinkActive="active-link">
-          <mat-icon class="nav-icon">report_problem</mat-icon>
-          <span class="nav-text">Register Complaint</span>
+          <mat-icon matListItemIcon class="nav-icon">report_problem</mat-icon>
+          <span matListItemTitle class="nav-text">Register Complaint</span>
         </a>
 
         <a mat-list-item routerLink="/customer/track" routerLinkActive="active-link">
-          <mat-icon class="nav-icon">track_changes</mat-icon>
-          <span class="nav-text">Track Complaints</span>
+          <mat-icon matListItemIcon class="nav-icon">track_changes</mat-icon>
+          <span matListItemTitle class="nav-text">Track Complaints</span>
         </a>
 
         <div class="nav-section">Account</div>
@@ -251,7 +248,7 @@ import { MatButtonModule } from '@angular/material/button';
   padding: 10px 10px !important;
 }
 
-    
+
 
     .nav-text{
       display: inline-flex;

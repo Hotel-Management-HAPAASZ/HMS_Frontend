@@ -1,5 +1,5 @@
 // app/manage-rooms/manage-rooms.component.ts
-import { Component, ViewChild, ElementRef } from '@angular/core';
+import { Component, ViewChild, ElementRef, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   ReactiveFormsModule,
@@ -8,6 +8,8 @@ import {
   FormControl,
   FormGroup
 } from '@angular/forms';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { startWith } from 'rxjs';
 
 import { MatCardModule } from '@angular/material/card';
 import { MatTableModule } from '@angular/material/table';
@@ -49,7 +51,7 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
       <div class="hero-badge">
         <span class="badge-dot"></span>
         <span class="text-muted small">Active:</span>
-        <span class="small fw-semibold">{{ activeCount }} / {{ rooms.length }}</span>
+        <span class="small fw-semibold">{{ activeCount }} / {{ roomsSignal().length }}</span>
       </div>
     </div>
   </div>
@@ -164,7 +166,16 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
     <div class="d-flex align-items-center justify-content-between mb-2">
       <h5 class="fw-bold mb-0">Rooms</h5>
 
-      <div class="d-flex align-items-center gap-2">
+      <div class="d-flex align-items-center gap-3">
+        <mat-form-field appearance="outline" class="search-field">
+          <mat-label>Search rooms...</mat-label>
+          <mat-icon matPrefix>search</mat-icon>
+          <input matInput [formControl]="searchControl" placeholder="No. or type">
+          <button *ngIf="searchControl.value" mat-icon-button matSuffix (click)="searchControl.setValue('')">
+            <mat-icon>close</mat-icon>
+          </button>
+        </mat-form-field>
+
         <button mat-raised-button color="accent" (click)="openFilePicker()">
           <mat-icon>upload</mat-icon>&nbsp; Bulk Upload
         </button>
@@ -176,10 +187,10 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
           (change)="onFileSelected($event)">
       </div>
 
-      <span class="text-muted small">Showing {{ rooms.length }} total</span>
+      <span class="text-muted small">Showing {{ filteredRooms().length }} / {{ roomsSignal().length }}</span>
     </div>
 
-    <table mat-table [dataSource]="rooms" class="w-100">
+    <table mat-table [dataSource]="filteredRooms()" class="w-100">
 
       <ng-container matColumnDef="roomNumber">
         <th mat-header-cell *matHeaderCellDef> No. </th>
@@ -259,12 +270,27 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
     }
     table { border-spacing: 0; }
     th.mat-header-cell { font-weight: 800; color: rgba(15,23,42,0.60); }
+    .search-field { width: 240px; }
+    ::ng-deep .search-field .mat-mdc-form-field-subscript-wrapper { display: none; }
   `]
 })
 export class ManageRoomsComponent {
   // Removed 'name' column, removed bedType from type column
   cols = ['roomNumber', 'type', 'price', 'guests', 'floor', 'active'];
-  rooms: Room[] = [];
+  roomsSignal = signal<Room[]>([]);
+  searchControl = new FormControl('', { nonNullable: true });
+  searchQuery = toSignal(this.searchControl.valueChanges.pipe(startWith('')), { initialValue: '' });
+
+  filteredRooms = computed(() => {
+    const q = this.searchQuery().toLowerCase().trim();
+    const all = this.roomsSignal();
+    if (!q) return all;
+    return all.filter(r =>
+      (r.roomNumber || '').toLowerCase().includes(q) ||
+      (r.type || '').toLowerCase().includes(q)
+    );
+  });
+
   amenityOptions: string[] = [];
   private amenityNameToId = new Map<string, number>();
 
@@ -304,17 +330,17 @@ export class ManageRoomsComponent {
 
   get fc() { return this.form.controls; }
 
-  get activeCount() { return this.rooms.filter((r: any) => !!r?.active).length; }
+  get activeCount() { return this.roomsSignal().filter((r: any) => !!r?.active).length; }
 
   refresh() {
-    this.rooms = this.roomService.list();
+    this.roomsSignal.set([...this.roomService.list()]);
   }
 
   async add() {
     if (this.form.invalid) return;
 
     const num = this.fc.roomNumber.value.trim().toUpperCase();
-    const duplicate = this.rooms.some((r: any) =>
+    const duplicate = this.roomsSignal().some((r: any) =>
       String(r?.roomNumber || '').toUpperCase() === num
     );
     if (duplicate) {
@@ -348,13 +374,18 @@ export class ManageRoomsComponent {
     const created = await this.roomService.create(payload as Room);
 
     if (created) {
-      // Reset only existing fields
-      this.form.patchValue({
+      this.form.reset({
         roomNumber: '',
-        description: ''
+        type: 'STANDARD',
+        floor: 1,
+        maxGuests: 2,
+        pricePerNight: 1800,
+        amenities: ['WiFi'],
+        description: '',
+        refundable: true,
+        cancellable: true,
+        active: true
       });
-      this.fc.roomNumber.markAsPristine();
-      this.fc.roomNumber.markAsUntouched();
       this.refresh();
     } else {
       console.error('Room creation failed.');

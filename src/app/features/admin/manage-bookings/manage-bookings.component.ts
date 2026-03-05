@@ -1,5 +1,5 @@
 // src/app/features/admin/manage-bookings/manage-bookings.component.ts
-import { Component, ViewChild, AfterViewInit, computed } from '@angular/core';
+import { Component, ViewChild, AfterViewInit, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 import { MatCardModule } from '@angular/material/card';
@@ -232,6 +232,16 @@ type BookingRow = AdminBookingRow & {
               </td>
             </ng-container>
 
+            <!-- Payment Method -->
+            <ng-container matColumnDef="paymentMethod">
+              <th mat-header-cell *matHeaderCellDef mat-sort-header class="th-center">Payment</th>
+              <td mat-cell *matCellDef="let b" class="td-center">
+                <div class="cell-center text-muted small">
+                  {{ b.paymentMethod || '—' }}
+                </div>
+              </td>
+            </ng-container>
+
             <!-- Status -->
             <ng-container matColumnDef="status">
               <th mat-header-cell *matHeaderCellDef class="th-center">Status</th>
@@ -245,6 +255,9 @@ type BookingRow = AdminBookingRow & {
                         }">
                     {{ (b.status || '') | uppercase }}
                   </span>
+                  <div *ngIf="b.refundAmount > 0" class="mt-1" style="font-size: 0.75rem; color: #dc3545; font-weight: 500;">
+                    Refunded: {{ b.refundAmount | currency:'INR':'symbol':'1.0-0':'en-IN' }}
+                  </div>
                 </div>
               </td>
             </ng-container>
@@ -254,6 +267,15 @@ type BookingRow = AdminBookingRow & {
               <th mat-header-cell *matHeaderCellDef class="th-center">Actions</th>
               <td mat-cell *matCellDef="let b" class="td-center">
                 <div class="cell-center actions-wrap">
+                  <button
+                    *ngIf="isStatus(b, 'PENDING') || isStatus(b, 'CREATED')"
+                    mat-stroked-button
+                    color="primary"
+                    class="action-btn me-2"
+                    (click)="confirm(b)"
+                    matTooltip="Confirm this booking">
+                    Confirm
+                  </button>
                   <button
                     mat-stroked-button
                     color="warn"
@@ -278,7 +300,7 @@ type BookingRow = AdminBookingRow & {
           </table>
 
           <mat-paginator
-            [length]="total"
+            [length]="total()"
             [pageSize]="10"
             [pageSizeOptions]="[5,10,25,50]"
             showFirstLastButtons>
@@ -471,7 +493,7 @@ type BookingRow = AdminBookingRow & {
   `],
 })
 export class ManageBookingsComponent implements AfterViewInit {
-  cols: string[] = ['room', 'dates', 'nights', 'guests', 'amount', 'status', 'actions'];
+  cols: string[] = ['room', 'dates', 'nights', 'guests', 'paymentMethod', 'amount', 'status', 'actions'];
   dataSource = new MatTableDataSource<BookingRow>([]);
 
   @ViewChild(MatPaginator) paginator!: MatPaginator;
@@ -485,8 +507,8 @@ export class ManageBookingsComponent implements AfterViewInit {
     toDate: FormControl<Date>;
   }>;
 
-  total = 0; // server-side total
-  totalBookings = computed(() => this.total);
+  total = signal(0); // server-side total
+  totalBookings = computed(() => this.total());
 
   constructor(
     private api: BookingApiService,
@@ -542,7 +564,7 @@ export class ManageBookingsComponent implements AfterViewInit {
       sortBy,
       sortDir,
     }).subscribe((res: PaginatedResponse<AdminBookingRow>) => {
-      this.total = res.totalElements;
+      this.total.set(res.totalElements);
       const rows: BookingRow[] = (res.content || []).map(b => ({
         ...b,
         roomId: (b as any).roomId ?? (b as any).room?.id, // defensive in case backend nests
@@ -604,7 +626,7 @@ export class ManageBookingsComponent implements AfterViewInit {
   }
 
   guests(b: any): number {
-    const g = b?.guests ?? b?.noOfGuests ?? ((b?.adults ?? 0) + (b?.children ?? 0));
+    const g = b?.numberOfGuests ?? b?.guests ?? b?.noOfGuests ?? ((b?.adults ?? 0) + (b?.children ?? 0));
     const n = Number(g);
     return Number.isFinite(n) ? n : 1;
   }
@@ -619,7 +641,12 @@ export class ManageBookingsComponent implements AfterViewInit {
     return String(b?.status ?? '').toUpperCase() === expected;
   }
 
-  // ---------- actions (only cancel) ----------
+  // ---------- actions ----------
+  confirm(b: AdminBookingRow) {
+    if (!this.isStatus(b, 'PENDING') && !this.isStatus(b, 'CREATED')) return;
+    this.api.setStatus(b.id, 'CONFIRMED').subscribe(() => this.reload());
+  }
+
   cancel(b: AdminBookingRow) {
     if (this.isStatus(b, 'CANCELLED')) return;
     this.api.cancel(b.id).subscribe(() => this.reload());

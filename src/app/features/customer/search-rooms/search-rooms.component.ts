@@ -225,16 +225,29 @@ function searchValidator(): (group: AbstractControl) => ValidationErrors | null 
         <!-- Results -->
         <div class="row g-3 g-md-4" *ngIf="results().length > 0">
           <div class="col-12 col-lg-6" *ngFor="let r of results()">
-            <div class="app-card p-3 p-md-4 room-card h-100">
+            <div class="app-card p-3 p-md-4 room-card h-100" [class.is-booked]="r.availabilityStatus === 'BOOKED'">
+
               <div class="d-flex align-items-start justify-content-between gap-3">
                 <div class="min-w-0">
-                  <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
                     <h5 class="fw-bold mb-0 text-truncate">{{ r.name }}</h5>
-                    <span class="pill type">{{ r.type }}</span>
-                    <span class="pill ok">Available</span>
+                    <span class="pill" [ngClass]="{
+                        'ok': r.availabilityStatus === 'AVAILABLE',
+                        'err-pill': r.availabilityStatus === 'BOOKED',
+                        'type': r.availabilityStatus === 'BROWSE'
+                      }">
+                      {{ r.availabilityStatus === 'BROWSE' ? 'Room Info' : (r.availabilityStatus | titlecase) }}
+                    </span>
                   </div>
-                  <div class="text-muted small mt-1">
+
+                  <div class="text-muted small">
                     Max Guests: <span class="fw-semibold">{{ r.maxGuests }}</span>
+                    <span *ngIf="r.availabilityStatus === 'BROWSE'" class="ms-2 text-primary fw-600">
+                      • Select dates to check availability
+                    </span>
+                    <span *ngIf="r.availabilityStatus === 'BOOKED' && r.unavailableUntil" class="ms-2 text-danger fw-600">
+                      • Unavailable until {{ r.unavailableUntil | date:'d MMM' }}
+                    </span>
                   </div>
 
                   <div class="chips mt-2" *ngIf="r.amenities?.length">
@@ -253,10 +266,14 @@ function searchValidator(): (group: AbstractControl) => ValidationErrors | null 
                 <div class="text-muted small">
                   Best for <span class="fw-semibold">{{ recommendFor(r) }}</span>
                 </div>
-                <button mat-raised-button color="primary" (click)="book(r)">
-                  Book <span class="ms-1">›</span>
+                <button mat-raised-button color="primary" (click)="book(r)"
+                        [disabled]="r.availabilityStatus === 'BOOKED'">
+                  <span *ngIf="r.availabilityStatus === 'AVAILABLE'">Book <span class="ms-1">›</span></span>
+                  <span *ngIf="r.availabilityStatus === 'BROWSE'">Select Dates <span class="ms-1">›</span></span>
+                  <span *ngIf="r.availabilityStatus === 'BOOKED'">Unavailable</span>
                 </button>
               </div>
+
             </div>
           </div>
         </div>
@@ -415,6 +432,18 @@ function searchValidator(): (group: AbstractControl) => ValidationErrors | null 
       background: rgba(34,197,94,0.10);
       color: rgba(22,101,52,0.95);
     }
+    .pill.err-pill{
+      border-color: rgba(239,68,68,0.18);
+      background: rgba(239,68,68,0.10);
+      color: rgba(185,28,28,0.95);
+    }
+    .is-booked {
+      opacity: 0.8;
+      filter: grayscale(0.2);
+      border: 1px dashed rgba(15,23,42,0.15) !important;
+      background: rgba(15,23,42,0.01) !important;
+    }
+    .fw-600 { font-weight: 600; }
 
     .chips{
       display:flex;
@@ -490,10 +519,9 @@ export class SearchRoomsComponent {
     , private amenitiesSvc: AmenityService
   ) { }
   private toDateOnly(d: Date): string {
-  // Use UTC parts to avoid timezone drift
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
@@ -502,10 +530,12 @@ export class SearchRoomsComponent {
       next: (names: string[]) => this.amenityNames.set(names),
       error: (err) => console.error('Failed to load amenity names', err)
     });
+    // Browse immediately on load
+    this.search();
   }
   form = this.fb.group({
-    from: [null as Date | null, Validators.required],
-    to: [null as Date | null, Validators.required],
+    from: [null as Date | null],
+    to: [null as Date | null],
     guests: [1, [Validators.min(1)]],
 
     // New optional filters
@@ -550,15 +580,15 @@ export class SearchRoomsComponent {
 
     this.searched.set(true);
 
-    const v = this.form.value;
-    const adults = v.guests!;
+    const v = this.form.getRawValue();
+    const adults = v.guests ?? 1;
     const children = 0;
 
     const roomType = (v.type || 'ALL_ROOMS').toUpperCase();
 
     this.rooms.searchAvailableRooms({
-      from: v.from!,
-      to: v.to!,
+      from: v.from ?? undefined,
+      to: v.to ?? undefined,
       adults,
       children,
       roomType: roomType
@@ -600,31 +630,30 @@ export class SearchRoomsComponent {
     return 'Couples / Solo';
   }
 
- book(room: Room) {
-  if (this.form.invalid) {
-    this.form.markAllAsTouched();
-    return;
-  }
+  book(room: Room) {
+    const v = this.form.value;
+    const from: Date | null = v.from ?? null;
+    const to: Date | null = v.to ?? null;
+    const guests: number = v.guests ?? 1;
 
-  const from: Date | null = this.form.value.from ?? null;
-  const to: Date | null = this.form.value.to ?? null;
-  const guests: number = this.form.value.guests!;
-
-  if (!room?.id || !from || !to || !guests) {
-    console.warn('Missing booking params', { room, from, to, guests });
-    return;
-  }
-
-  this.router.navigate(
-    ['/customer/book'],
-    {
-      queryParams: {
-        roomId: room.id,
-        from: this.toDateOnly(from),  // YYYY-MM-DD
-        to: this.toDateOnly(to),      // YYYY-MM-DD
-        guests
-      }
+    if (!from || !to) {
+      alert('Please select Check-in and Check-out dates to book this room.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
     }
-  );
-}
+
+    if (!room?.id) return;
+
+    this.router.navigate(
+      ['/customer/book'],
+      {
+        queryParams: {
+          roomId: room.id,
+          from: this.toDateOnly(from),  // YYYY-MM-DD
+          to: this.toDateOnly(to),      // YYYY-MM-DD
+          guests
+        }
+      }
+    );
+  }
 }

@@ -530,29 +530,47 @@ export class PayBillComponent implements OnInit {
 
     const bookingId = Number(b.bookingId ?? b.id);
 
+    // Common payload
+    const payload = {
+      bookingId,
+      paymentMethod: method,
+      // Card fields will be ignored by backend if not CARD
+      cardNumber: this.form.value.cardNumber ?? '',
+      cardHolderName: this.form.value.cardName ?? '',
+      expiry: this.form.value.expiry ?? '',
+      cvv: this.form.value.cvv ?? ''
+    };
+
     if (method === 'CASH') {
-      // No payment API call; show intermediate screen
-      this.router.navigate(['/customer/payment-result'], {
-        queryParams: { mode: 'cash', bookingId }
+      this.paying.set(true);
+      this.paymentApi.initiatePayment(payload).subscribe({
+        next: () => {
+          this.router.navigate(['/customer/payment-result'], {
+            queryParams: { mode: 'cash', bookingId }
+          });
+        },
+        error: (err) => this.toast.showError(err?.error?.message || 'Failed to initiate cash payment'),
+        complete: () => this.paying.set(false)
       });
       return;
     }
 
     if (method === 'UPI') {
-      this.toast.showSuccess('UPI payment details have been captured successfully.');
+      this.paying.set(true);
+      this.paymentApi.initiatePayment(payload).subscribe({
+        next: () => {
+          this.toast.showSuccess('UPI payment details captured.');
+          this.router.navigate(['/customer/payment-result'], {
+            queryParams: { mode: 'upi', bookingId }
+          });
+        },
+        error: (err) => this.toast.showError(err?.error?.message || 'Failed to initiate UPI payment'),
+        complete: () => this.paying.set(false)
+      });
       return;
     }
 
     // CARD → initiate → OTP
-    const payload = {
-      bookingId,
-      paymentMethod: 'CARD',
-      cardNumber: this.form.value.cardNumber!,
-      cardHolderName: this.form.value.cardName!,
-      expiry: this.form.value.expiry!,
-      cvv: this.form.value.cvv!
-    };
-
     this.paying.set(true);
     this.paymentApi.initiatePayment(payload).subscribe({
       next: (resp) => {

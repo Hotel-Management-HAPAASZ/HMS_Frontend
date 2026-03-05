@@ -70,6 +70,8 @@ export class RoomService {
       maxGuests: dto.maxGuest,
       amenities: dto.amenities ?? [],
       active: dto.availabilityStatus === 'AVAILABLE',
+      availabilityStatus: dto.availabilityStatus,
+      unavailableUntil: dto.unavailableUntil,
       // imageUrl: dto.imageUrl
     };
   }
@@ -175,18 +177,19 @@ export class RoomService {
   // Search API (kept) — now **also hydrates** the cache
   // =======================================================
   searchAvailableRooms(opts: {
-    from: Date;
-    to: Date;
+    from?: Date;
+    to?: Date;
     adults: number;
     children: number;
     roomType: string;
   }): Observable<Room[]> {
     let params = new HttpParams()
-      .set('checkInDate', formatDateOnly(opts.from))
-      .set('checkOutDate', formatDateOnly(opts.to))
       .set('adults', String(opts.adults))
       .set('children', String(opts.children))
       .set('roomType', opts.roomType);
+
+    if (opts.from) params = params.set('checkInDate', formatDateOnly(opts.from));
+    if (opts.to) params = params.set('checkOutDate', formatDateOnly(opts.to));
 
     return this.http.get<RoomSearchResponse[]>(`${this.baseUrl}/search`, { params })
       .pipe(

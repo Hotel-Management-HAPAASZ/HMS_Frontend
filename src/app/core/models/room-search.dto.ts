@@ -5,7 +5,8 @@ export interface RoomSearchResponse {
   pricePerNight: number;
   maxGuest: number;
   floor:number;
-  availabilityStatus: string; 
+  availabilityStatus: string;
   amenities: string[];
   imageUrl?: string;
+  unavailableUntil?: string;
 }
