@@ -5,6 +5,8 @@ import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { generateInvoicePdf, triggerDownload } from '../../../shared/invoice-pdf';
 import { ToastService } from '../../../core/services/toast.service';
+import { InvoiceService } from '../../../core/services/invoice.service';
+import { lastValueFrom } from 'rxjs';
 
 @Component({
   standalone: true,
@@ -213,53 +215,48 @@ export class PaymentResultComponent {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private toast = inject(ToastService);
+  private invoiceService = inject(InvoiceService);
 
   bookingId = computed(() => this.route.snapshot.queryParamMap.get('bookingId') ?? '');
   paymentId = computed(() => this.route.snapshot.queryParamMap.get('paymentId') ?? '');
   mode = computed(() => this.route.snapshot.queryParamMap.get('mode') ?? 'card');
 
   async downloadInvoice() {
-  const bookingId = this.bookingId();
-  if (!bookingId) {
-    this.toast.showError('Unable to download invoice: Missing booking ID.');
-    return;
-  }
-
-  try {
-    // FULL URL → works ALWAYS (no proxy needed)
-    const url = `http://localhost:8080/api/invoices/booking/${bookingId}`;
-
-    console.log("[Invoice] Calling:", url);
-
-    const res = await fetch(url, {
-      headers: { "Accept": "application/json" },
-    });
-
-    if (!res.ok) {
-      throw new Error("HTTP " + res.status);
+    const bookingId = this.bookingId();
+    if (!bookingId) {
+      this.toast.showError('Unable to download invoice: Missing booking ID.');
+      return;
     }
 
-    const data = await res.json(); // This will NOW work
+    try {
+      // Use HttpClient which includes auth token via interceptor
+      const data = await lastValueFrom(this.invoiceService.getInvoice(bookingId));
 
-    // Generate PDF
-    const blob = await generateInvoicePdf(data);
+      // Generate PDF - convert null to undefined for invoiceNumber
+      const blob = await generateInvoicePdf({
+        ...data,
+        invoiceNumber: data.invoiceNumber ?? undefined,
+        transactionId: data.transactionId ?? undefined
+      });
 
-    // Filename
-    const fileName = data?.invoiceNumber
-      ? `Invoice_${data.invoiceNumber}.pdf`
-      : `Invoice_Booking_${bookingId}.pdf`;
+      // Filename
+      const fileName = data?.invoiceNumber
+        ? `Invoice_${data.invoiceNumber}.pdf`
+        : `Invoice_Booking_${bookingId}.pdf`;
 
-    // Auto download
-    triggerDownload(blob, fileName);
+      // Auto download
+      triggerDownload(blob, fileName);
+      this.toast.showSuccess('Invoice downloaded successfully');
 
-  } catch (err) {
-    console.error("Invoice download failed:", err);
-    this.toast.showError('Invoice download failed. Please try again later.');
+    } catch (err: any) {
+      console.error("Invoice download failed:", err);
+      const msg = err?.error?.message || err?.message || 'Invoice download failed. Please try again later.';
+      this.toast.showError(msg);
+    }
   }
-}
-
 
   goMyBookings() {
+    // Navigate and let the history component refresh
     this.router.navigateByUrl('/customer/history');
   }
 }

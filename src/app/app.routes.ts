@@ -131,6 +131,18 @@ export const routes: Routes = [
           import('./features/customer/payment-result/payment-result.component')
             .then(m => m.PaymentResultComponent)
       },
+      {
+        path: 'food',
+        loadComponent: () =>
+          import('./features/customer/food-order/food-order.component')
+            .then(m => m.FoodOrderComponent)
+      },
+      {
+        path: 'food-history',
+        loadComponent: () =>
+          import('./features/customer/food-history/food-history.component')
+            .then(m => m.FoodHistoryComponent)
+      },
     ]
   },
 
@@ -215,6 +227,36 @@ export const routes: Routes = [
           import('./features/staff/housekeeping-tasks/housekeeping-tasks.component')
             .then(m => m.HousekeepingTasksComponent)
       },
+    ]
+  },
+
+  // FOOD STAFF LAYOUT
+  {
+    path: 'food-staff',
+    canActivate: [authGuard, roleGuard(['FOOD_STAFF'])],
+    loadComponent: () =>
+      import('./layouts/food-staff-layout/food-staff-layout.component')
+        .then(m => m.FoodStaffLayoutComponent),
+    children: [
+      { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
+      {
+        path: 'dashboard',
+        loadComponent: () =>
+          import('./features/food-staff/food-staff-dashboard/food-staff-dashboard.component')
+            .then(m => m.FoodStaffDashboardComponent)
+      },
+      {
+        path: 'orders',
+        loadComponent: () =>
+          import('./features/food-staff/order-queue/order-queue.component')
+            .then(m => m.OrderQueueComponent)
+      },
+      {
+        path: 'menu',
+        loadComponent: () =>
+          import('./features/food-staff/manage-menu/manage-menu.component')
+            .then(m => m.ManageMenuComponent)
+      }
     ]
   },
 

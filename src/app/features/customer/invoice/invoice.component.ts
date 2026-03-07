@@ -340,7 +340,7 @@ export class InvoiceComponent implements OnInit {
 
     try {
       const blob = await generateInvoicePdf({
-        // null-safe coalescing to satisfy strict types
+        // Convert null to undefined for invoiceNumber
         invoiceNumber: src.invoiceNumber ?? undefined,
         bookingId: src.bookingId ?? undefined, // kept for compatibility (not printed)
         hotelName: src.hotelName ?? undefined,

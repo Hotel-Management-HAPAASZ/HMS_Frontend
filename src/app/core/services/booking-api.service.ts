@@ -5,7 +5,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 /** ===== Types aligned with your Spring controller ===== */
 
-export type BookingStatus = '' | 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'CREATED';
+export type BookingStatus = '' | 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'CREATED' | 'CHECKED_IN' | 'CHECKED_OUT';
 
 export interface BookingRequest {
   userId: number;

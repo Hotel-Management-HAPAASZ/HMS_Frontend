@@ -1,6 +1,7 @@
-import { Component, OnDestroy } from '@angular/core';
+import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, Validators, ReactiveFormsModule, FormGroupDirective } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 
 import { AuthService } from '../../../core/services/auth.service';
 import { NewComplaintService } from '../../../core/services/new-complaint.service';
@@ -13,7 +14,15 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatIconModule } from '@angular/material/icon';
 import { MatDividerModule } from '@angular/material/divider';
 
-
+interface ActiveBooking {
+  bookingId: number;
+  roomTypes: string[];
+  roomNumbers: string[];
+  checkIn: string;
+  checkOut: string;
+  numberOfGuests: number;
+  bookingStatus: string;
+}
 
 @Component({
   standalone: true,
@@ -50,27 +59,91 @@ import { MatDividerModule } from '@angular/material/divider';
 
         <mat-divider class="mb-3"></mat-divider>
 
-        <!-- NEW: Success banner with Complaint ID -->
-        <div *ngIf="createdReference" class="success-banner mb-3">
-          <div class="d-flex align-items-center justify-content-between gap-2">
-            <div class="d-flex align-items-center gap-2">
-              <mat-icon>confirmation_number</mat-icon>
-              <div>
-                <div class="fw-semibold">Complaint created successfully</div>
-                <div class="small text-muted">Ref: <code>{{ createdReference }}</code></div>
+        <!-- NO ACTIVE BOOKING — Block complaint form -->
+        <div *ngIf="!loadingBookings() && activeBookings().length === 0 && !createdReference" class="no-booking-card">
+          <div class="d-flex align-items-start gap-3">
+            <div class="no-booking-ico">🏨</div>
+            <div>
+              <h5 class="fw-bold mb-1">No active stay found</h5>
+              <p class="text-muted mb-2">
+                You can only raise complaints during your stay at the hotel — after check-in and before check-out.
+              </p>
+              <div class="hint-list">
+                <div class="hint-item">
+                  <mat-icon class="hint-icon">info_outline</mat-icon>
+                  <span>Make sure you have checked in at the reception</span>
+                </div>
+                <div class="hint-item">
+                  <mat-icon class="hint-icon">calendar_today</mat-icon>
+                  <span>Your booking must be for today's date</span>
+                </div>
+                <div class="hint-item">
+                  <mat-icon class="hint-icon">refresh</mat-icon>
+                  <span>If you just checked in, try refreshing the page</span>
+                </div>
               </div>
-            </div>
-            <div class="d-flex align-items-center gap-2">
-              <button mat-stroked-button (click)="copyId()">Copy ID</button>
-              <!-- <button mat-stroked-button color="primary" (click)="goToTrack()">Track</button> -->
+              <button mat-stroked-button class="mt-2" (click)="loadActiveBookings()">
+                <mat-icon class="me-1" style="font-size:16px;width:16px;height:16px;">refresh</mat-icon>
+                Refresh
+              </button>
             </div>
           </div>
         </div>
-        <!-- /success banner -->
 
-        <form [formGroup]="form" (ngSubmit)="submit(formDirective)" #formDirective="ngForm" class="grid gap-3">
+        <!-- Loading -->
+        <div *ngIf="loadingBookings()" class="text-center py-4 text-muted">
+          Loading your active bookings...
+        </div>
 
-          <!-- Row 1 -->
+        <!-- Success banner -->
+        <div *ngIf="createdReference" class="success-banner mb-3">
+          <div class="d-flex align-items-center justify-content-between gap-2">
+            <div class="d-flex align-items-center gap-2">
+              <mat-icon class="text-success">check_circle</mat-icon>
+              <div>
+                <div class="fw-semibold">Complaint registered successfully!</div>
+                <div class="small text-muted">Reference: <code>{{ createdReference }}</code></div>
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <button mat-stroked-button (click)="copyId()">
+                <mat-icon style="font-size:14px;width:14px;height:14px;" class="me-1">content_copy</mat-icon>
+                Copy ID
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- FORM (only shown when active bookings exist) -->
+        <form *ngIf="activeBookings().length > 0"
+              [formGroup]="form" (ngSubmit)="submit(formDirective)" #formDirective="ngForm" class="grid gap-3">
+
+          <!-- Active Booking Selector (replaces raw booking ID) -->
+          <div class="active-booking-info mb-2">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <mat-icon class="text-success" style="font-size:18px;width:18px;height:18px;">check_circle</mat-icon>
+              <span class="fw-bold small">Active Stay Detected</span>
+            </div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-12">
+              <mat-form-field appearance="outline" class="w-100">
+                <mat-label>Select Booking</mat-label>
+                <mat-select formControlName="bookingId" required>
+                  <mat-option *ngFor="let b of activeBookings()" [value]="b.bookingId">
+                    Room {{ b.roomNumbers?.join(', ') || '—' }}
+                    ({{ b.roomTypes?.join(', ') || 'Room' }})
+                    · {{ b.checkIn | date:'d MMM' }} – {{ b.checkOut | date:'d MMM' }}
+                    · Booking #{{ b.bookingId }}
+                  </mat-option>
+                </mat-select>
+                <mat-error>Please select the booking related to your complaint</mat-error>
+              </mat-form-field>
+            </div>
+          </div>
+
+          <!-- Category & Priority -->
           <div class="row g-3">
             <div class="col-12 col-md-6">
               <mat-form-field appearance="outline" class="w-100">
@@ -88,7 +161,9 @@ import { MatDividerModule } from '@angular/material/divider';
               <mat-form-field appearance="outline" class="w-100">
                 <mat-label>Priority</mat-label>
                 <mat-select formControlName="priority" required>
-                  <mat-option *ngFor="let p of priorities" [value]="p">{{ p }}</mat-option>
+                  <mat-option *ngFor="let p of priorities" [value]="p.value">
+                    {{ p.label }}
+                  </mat-option>
                 </mat-select>
                 <mat-error *ngIf="form.controls.priority.touched && form.controls.priority.invalid">
                   Priority is required
@@ -97,32 +172,17 @@ import { MatDividerModule } from '@angular/material/divider';
             </div>
           </div>
 
-          <!-- Row 2 -->
+          <!-- Contact & Title -->
           <div class="row g-3">
             <div class="col-12 col-md-6">
               <mat-form-field appearance="outline" class="w-100">
                 <mat-label>Contact Preference</mat-label>
                 <mat-select formControlName="contactPreference" required>
-                  <mat-option value="EMAIL">Email</mat-option>
-                  <mat-option value="CALL">Call</mat-option>
+                  <mat-option value="EMAIL">📧 Email</mat-option>
+                  <mat-option value="CALL">📞 Phone Call</mat-option>
                 </mat-select>
                 <mat-error *ngIf="form.controls.contactPreference.touched && form.controls.contactPreference.invalid">
                   Please choose a contact preference
-                </mat-error>
-              </mat-form-field>
-            </div>
-          </div>
-
-          <div class="row g-3">
-            <div class="col-12 col-md-6">
-              <mat-form-field appearance="outline" class="w-100">
-                <mat-label>Booking ID</mat-label>
-                <input matInput formControlName="bookingId" placeholder="e.g. 1024">
-                <mat-error *ngIf="form.controls.bookingId.touched && form.controls.bookingId.hasError('required')">
-                  Booking ID is required
-                </mat-error>
-                <mat-error *ngIf="form.controls.bookingId.touched && form.controls.bookingId.hasError('pattern')">
-                  Booking ID must be a number
                 </mat-error>
               </mat-form-field>
             </div>
@@ -130,7 +190,7 @@ import { MatDividerModule } from '@angular/material/divider';
             <div class="col-12 col-md-6">
               <mat-form-field appearance="outline" class="w-100">
                 <mat-label>Title</mat-label>
-                <input matInput formControlName="title" minlength="10" maxlength="100" placeholder="Short summary">
+                <input matInput formControlName="title" minlength="10" maxlength="100" placeholder="Short summary of the issue">
                 <mat-hint align="end">{{ form.controls.title.value?.length || 0 }}/100</mat-hint>
                 <mat-error *ngIf="form.controls.title.touched && form.controls.title.hasError('required')">
                   Title is required
@@ -141,7 +201,6 @@ import { MatDividerModule } from '@angular/material/divider';
               </mat-form-field>
             </div>
           </div>
-
 
           <!-- Description -->
           <mat-form-field appearance="outline" class="w-100">
@@ -156,8 +215,6 @@ import { MatDividerModule } from '@angular/material/divider';
             <mat-error *ngIf="form.controls.description.touched && form.controls.description.hasError('minlength')">
               Please enter at least 20 characters
             </mat-error>
-            <!-- Show backend validation errors here if mapped -->
-            <mat-error *ngIf="serverErrors['description']">{{ serverErrors['description'] }}</mat-error>
           </mat-form-field>
 
           <!-- Actions -->
@@ -212,81 +269,128 @@ import { MatDividerModule } from '@angular/material/divider';
     .btn-soft{ border-radius: 12px; }
     .w-100{ width: 100%; }
 
-    /* NEW */
+    /* No booking card */
+    .no-booking-card{
+      border: 1px dashed rgba(245,158,11,0.35);
+      background: rgba(245,158,11,0.04);
+      border-radius: 16px;
+      padding: 20px;
+    }
+    .no-booking-ico{
+      width: 52px; height: 52px; border-radius: 14px;
+      display: grid; place-items: center; font-size: 26px;
+      background: rgba(245,158,11,0.10);
+      border: 1px solid rgba(245,158,11,0.20);
+      flex: 0 0 52px;
+    }
+    .hint-list{ display: flex; flex-direction: column; gap: 6px; }
+    .hint-item{
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px; color: rgba(15,23,42,0.65);
+    }
+    .hint-icon{ font-size: 16px !important; width: 16px !important; height: 16px !important; color: rgba(79,70,229,0.7); }
+
+    /* Active booking info */
+    .active-booking-info{
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(34,197,94,0.20);
+      background: rgba(34,197,94,0.05);
+    }
+
+    /* Success */
     .success-banner{
       border: 1px solid rgba(34,197,94,0.25);
       background: rgba(34,197,94,0.08);
       border-radius: 12px;
-      padding: 10px 12px;
+      padding: 12px 14px;
     }
   `]
 })
-export class RegisterComplaintComponent {
+export class RegisterComplaintComponent implements OnInit {
   submitting = false;
-
-  // NEW: show ID banner
-  // NEW: show ref banner
   createdReference: string | null = null;
-  serverErrors: Record<string, string> = {};
 
+  // Active bookings from backend
+  activeBookings = signal<ActiveBooking[]>([]);
+  loadingBookings = signal(false);
+
+  // Fixed categories — each maps to a UNIQUE backend enum value
   categories = [
-    { label: 'Housekeeping', value: 'ROOM_ISSUE' },
-    { label: 'Maintenance', value: 'ROOM_ISSUE' },
-    { label: 'Billing', value: 'BILLING_ISSUE' },
-    { label: 'Food & Beverage', value: 'SERVICE_ISSUE' },
-    { label: 'Reservation', value: 'SERVICE_ISSUE' },
-    { label: 'Other', value: 'OTHER' }
+    { label: '🛏️ Room Issue (Housekeeping / Maintenance)', value: 'ROOM_ISSUE' },
+    { label: '🍽️ Service Issue (Food / Reservation)', value: 'SERVICE_ISSUE' },
+    { label: '💳 Billing Issue', value: 'BILLING_ISSUE' },
+    { label: '📋 Other', value: 'OTHER' }
   ] as const;
-  priorities = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 
-
+  // Priorities with friendly labels
+  priorities = [
+    { label: '🟢 Low — Minor inconvenience', value: 'LOW' },
+    { label: '🟡 Medium — Affects comfort', value: 'MEDIUM' },
+    { label: '🟠 High — Urgent attention needed', value: 'HIGH' },
+    { label: '🔴 Urgent — Immediate action required', value: 'URGENT' }
+  ] as const;
 
   form = this.fb.group({
+    bookingId: [null as number | null, Validators.required],
     category: ['', Validators.required],
     priority: ['', Validators.required],
     contactPreference: ['EMAIL', Validators.required],
-
-    bookingId: [null as unknown as number], // Now nullable, don't strictly require
-
     title: ['', [Validators.required, Validators.minLength(10), Validators.maxLength(100)]],
     description: ['', [Validators.required, Validators.minLength(20), Validators.maxLength(500)]]
   });
 
-   constructor(
+  constructor(
     private fb: FormBuilder,
     private auth: AuthService,
     private complaints: NewComplaintService,
-    private snack: MatSnackBar
+    private snack: MatSnackBar,
+    private http: HttpClient
   ) {}
 
+  ngOnInit(): void {
+    this.loadActiveBookings();
+  }
+
+  loadActiveBookings() {
+    const u = this.auth.user();
+    if (!u) return;
+
+    this.loadingBookings.set(true);
+    this.http.get<ActiveBooking[]>(`http://localhost:8080/api/bookings/user/${u.id}/active`)
+      .subscribe({
+        next: (bookings) => {
+          this.activeBookings.set(bookings);
+          // Auto-select if only one booking
+          if (bookings.length === 1) {
+            this.form.patchValue({ bookingId: bookings[0].bookingId });
+          }
+          this.loadingBookings.set(false);
+        },
+        error: () => {
+          this.activeBookings.set([]);
+          this.loadingBookings.set(false);
+        }
+      });
+  }
+
   reset(formDirective?: FormGroupDirective) {
-    if (formDirective) {
-      formDirective.resetForm();
-    }
+    if (formDirective) formDirective.resetForm();
     this.form.reset({
+      bookingId: this.activeBookings().length === 1 ? this.activeBookings()[0].bookingId : null,
       category: '',
       priority: '',
       contactPreference: 'EMAIL',
-      bookingId: null as unknown as number,
       title: '',
       description: ''
     });
   }
 
-  // NEW: copy to clipboard
   copyId() {
     if (!this.createdReference) return;
     navigator.clipboard?.writeText(this.createdReference).then(() => {
       this.snack.open('Complaint ID copied', 'OK', { duration: 2000 });
     }).catch(() => {});
-  }
-
-  // NEW: navigate to Track (adjust route if different)
-  goToTrack() {
-    // If you have a router injected, navigate:
-    // this.router.navigate(['/customer/track']);
-    // For now, just hint:
-    this.snack.open('Go to Track page from sidebar to view status', 'OK', { duration: 2500 });
   }
 
   async submit(formDirective: FormGroupDirective) {
@@ -318,24 +422,16 @@ export class RegisterComplaintComponent {
         }
       );
 
-      // NEW: show clear, copyable ID
       this.createdReference = created.referenceNumber;
-      const ref = this.snack.open(`Complaint created • ID: ${created.referenceNumber}`, 'Copy ID', { duration: 6000 });
+      const ref = this.snack.open(`Complaint created • Ref: ${created.referenceNumber}`, 'Copy ID', { duration: 6000 });
       ref.onAction().subscribe(() => this.copyId());
 
       this.reset(formDirective);
-
-      // Keep the banner for a while
-      setTimeout(() => { this.createdReference = null; }, 120000); // auto-hide after 2 mins
+      setTimeout(() => { this.createdReference = null; }, 120000);
 
     } catch (err: any) {
-      if (err.status === 400 && err.error && typeof err.error === 'object') {
-         this.serverErrors = err.error; // Display inline
-         this.snack.open('Please fix the errors in the form.', 'OK', { duration: 3000 });
-      } else {
-         const msg = err?.error?.message || err?.message || 'Failed to create complaint';
-         this.snack.open(msg, 'OK', { duration: 3000 });
-      }
+      const msg = err?.error?.message || err?.message || 'Failed to create complaint';
+      this.snack.open(msg, 'OK', { duration: 4000 });
     } finally {
       this.submitting = false;
     }

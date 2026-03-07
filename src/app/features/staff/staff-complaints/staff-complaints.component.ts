@@ -550,10 +550,12 @@ export class StaffComplaintsComponent {
     private snack: MatSnackBar,
     private auth: AuthService
   ) {
+    this.initFilterPredicate();
     this.reload();
   }
 
-  // Raw rows
+  // Raw rows (full page from backend; client-side filter/search applied on top)
+  allRows: Complaint[] = [];
   dataSource = new MatTableDataSource<Complaint>([]);
 
   // Pagination
@@ -589,6 +591,30 @@ export class StaffComplaintsComponent {
       resolutionNote: this.fb.control('', [Validators.required])
   });
 
+  private initFilterPredicate() {
+    this.dataSource.filterPredicate = (c: any, filterJson: string) => {
+      const f = JSON.parse(filterJson) as { q: string; priority: PriorityFilter };
+
+      // Priority filter (client-side since backend doesn't support it)
+      if (f.priority && (c.priority || 'LOW') !== f.priority) return false;
+
+      // Search filter (client-side keyword search on title/description/referenceNumber)
+      const q = (f.q || '').toLowerCase().trim();
+      if (!q) return true;
+
+      const title = (c.title || c.subject || '').toLowerCase();
+      const desc = (c.description || c.message || '').toLowerCase();
+      const ref = (c.referenceNumber || '').toLowerCase();
+      const userId = String(c.userId || c.customerId || '').toLowerCase();
+      return title.includes(q) || desc.includes(q) || ref.includes(q) || userId.includes(q);
+    };
+  }
+
+  private applyClientFilters() {
+    this.dataSource.filter = JSON.stringify({ q: this.query, priority: this.priorityFilter });
+    this.cdr.markForCheck();
+  }
+
   reload() {
     this.page = 0;
     this.fetchData();
@@ -604,7 +630,8 @@ export class StaffComplaintsComponent {
         status: this.statusFilter || undefined
       });
 
-      this.dataSource.data = resp.content || [];
+      this.allRows = resp.content || [];
+      this.dataSource.data = this.allRows;
       this.pageInfo = {
         totalElements: resp.totalElements,
         totalPages: resp.totalPages,
@@ -613,6 +640,7 @@ export class StaffComplaintsComponent {
         first: resp.first,
         last: resp.last
       };
+      this.applyClientFilters();
     } catch (err: any) {
       this.snack.open(err.error?.message || 'Failed to load complaints', 'OK', { duration: 3000 });
       this.dataSource.data = [];
@@ -624,9 +652,9 @@ export class StaffComplaintsComponent {
 
   applyFilters() { this.reload(); }
 
-  setQuery(v: string)              { this.query        = v; this.reload(); }
+  setQuery(v: string)              { this.query = v; this.applyClientFilters(); }
   setStatusFilter(v: StatusFilter) { this.statusFilter = v; this.reload(); }
-  setPriorityFilter(v: PriorityFilter) { this.priorityFilter = v; this.reload(); }
+  setPriorityFilter(v: PriorityFilter) { this.priorityFilter = v; this.applyClientFilters(); }
   clearFilters()                   { this.query = ''; this.statusFilter = 'OPEN'; this.priorityFilter = ''; this.reload(); }
 
 
@@ -646,7 +674,7 @@ export class StaffComplaintsComponent {
 
   // ---------- computed ----------
   get openCount(): number {
-    return this.pageInfo.totalElements; // Approximate since backend does the count if filtered to OPEN
+    return this.allRows.filter(c => (c as any).status === 'OPEN' || (c as any).status === 'IN_PROGRESS').length;
   }
 
   // ---------- table helpers ----------

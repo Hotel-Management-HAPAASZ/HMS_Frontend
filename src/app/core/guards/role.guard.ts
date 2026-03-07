@@ -18,6 +18,7 @@ export const roleGuard = (allowed: Role[]): CanActivateFn => () => {
   // fallback based on role
   if (role === 'ADMIN') router.navigateByUrl('/admin/dashboard');
   else if (role === 'STAFF') router.navigateByUrl('/staff/dashboard');
+  else if (role === 'FOOD_STAFF') router.navigateByUrl('/food-staff/dashboard');
   else router.navigateByUrl('/customer/dashboard');
 
   return false;

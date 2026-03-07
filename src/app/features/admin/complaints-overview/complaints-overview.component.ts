@@ -611,7 +611,7 @@ export class ComplaintsOverviewComponent {
   );
 
   // ---------- lifecycle / data ----------
-  reload() { this.page = 0; this.fetchData(); }
+  reload() { this.page = 0; this.fetchData(); this.fetchOpenCount(); }
 
   async fetchData() {
     this.loading = true;
@@ -704,8 +704,15 @@ export class ComplaintsOverviewComponent {
   }
 
   // ---------- computed ----------
-  get openCount(): number {
-    return this.rows.filter(c => c.status === 'OPEN' || c.status === 'IN_PROGRESS').length;
+  openCount = 0; // Fetched separately to avoid being affected by status filters
+
+  private async fetchOpenCount() {
+    try {
+      const resp = await this.complaints.getAllComplaints({ status: 'OPEN', page: 0, size: 1 });
+      const resp2 = await this.complaints.getAllComplaints({ status: 'IN_PROGRESS', page: 0, size: 1 });
+      this.openCount = resp.totalElements + resp2.totalElements;
+      this.cdr.markForCheck();
+    } catch { /* non-critical */ }
   }
 
   // ---------- table helpers ----------

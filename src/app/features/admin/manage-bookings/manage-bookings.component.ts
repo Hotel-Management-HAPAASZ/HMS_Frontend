@@ -119,6 +119,8 @@ type BookingRow = AdminBookingRow & {
                 <mat-option value="">All</mat-option>
                 <mat-option value="CONFIRMED">Confirmed</mat-option>
                 <mat-option value="PENDING">Pending</mat-option>
+                <mat-option value="CHECKED_IN">Checked In</mat-option>
+                <mat-option value="CHECKED_OUT">Checked Out</mat-option>
                 <mat-option value="CANCELLED">Cancelled</mat-option>
               </mat-select>
             </mat-form-field>
@@ -251,6 +253,8 @@ type BookingRow = AdminBookingRow & {
                         [ngClass]="{
                           'status-confirmed': isStatus(b, 'CONFIRMED'),
                           'status-pending'  : isStatus(b, 'PENDING'),
+                          'status-checked-in': isStatus(b, 'CHECKED_IN'),
+                          'status-checked-out': isStatus(b, 'CHECKED_OUT'),
                           'status-cancelled': isStatus(b, 'CANCELLED')
                         }">
                     {{ (b.status || '') | uppercase }}
@@ -262,20 +266,21 @@ type BookingRow = AdminBookingRow & {
               </td>
             </ng-container>
 
-            <!-- Actions: Only Cancel -->
+            <!-- Actions: Status Change + Cancel -->
             <ng-container matColumnDef="actions">
               <th mat-header-cell *matHeaderCellDef class="th-center">Actions</th>
               <td mat-cell *matCellDef="let b" class="td-center">
                 <div class="cell-center actions-wrap">
-                  <button
-                    *ngIf="isStatus(b, 'PENDING') || isStatus(b, 'CREATED')"
-                    mat-stroked-button
-                    color="primary"
-                    class="action-btn me-2"
-                    (click)="confirm(b)"
-                    matTooltip="Confirm this booking">
-                    Confirm
-                  </button>
+                  <mat-form-field appearance="outline" class="status-select">
+                    <mat-label>Status</mat-label>
+                    <mat-select [value]="b.status || ''" (selectionChange)="changeStatus(b, $event.value)">
+                      <mat-option value="PENDING">Pending</mat-option>
+                      <mat-option value="CONFIRMED">Confirmed</mat-option>
+                      <mat-option value="CHECKED_IN">Checked In</mat-option>
+                      <mat-option value="CHECKED_OUT">Checked Out</mat-option>
+                      <mat-option value="CANCELLED">Cancelled</mat-option>
+                    </mat-select>
+                  </mat-form-field>
                   <button
                     mat-stroked-button
                     color="warn"
@@ -471,6 +476,13 @@ type BookingRow = AdminBookingRow & {
       white-space: nowrap;
       padding: 0 12px;
     }
+    .status-select{
+      width: 140px;
+      font-size: 13px;
+    }
+    :host ::ng-deep .status-select .mat-mdc-form-field-subscript-wrapper{
+      display: none;
+    }
 
     .status-chip{
       display: inline-flex;
@@ -485,6 +497,8 @@ type BookingRow = AdminBookingRow & {
     }
     .status-confirmed{ border-color: rgba(34,197,94,0.24); background: rgba(34,197,94,0.10); color: #166534; }
     .status-pending  { border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.10); color: #92400e; }
+    .status-checked-in{ border-color: rgba(59,130,246,0.28); background: rgba(59,130,246,0.10); color: #1e40af; }
+    .status-checked-out{ border-color: rgba(139,92,246,0.28); background: rgba(139,92,246,0.10); color: #6b21a8; }
     .status-cancelled{ border-color: rgba(239,68,68,0.28); background: rgba(239,68,68,0.10); color: #7f1d1d; }
 
     .empty td{ background: #fff; }
@@ -642,14 +656,22 @@ export class ManageBookingsComponent implements AfterViewInit {
   }
 
   // ---------- actions ----------
-  confirm(b: AdminBookingRow) {
-    if (!this.isStatus(b, 'PENDING') && !this.isStatus(b, 'CREATED')) return;
-    this.api.setStatus(b.id, 'CONFIRMED').subscribe(() => this.reload());
+  changeStatus(b: AdminBookingRow, newStatus: BookingStatus) {
+    if (!newStatus || newStatus === b.status) return;
+    this.api.setStatus(b.id, newStatus).subscribe({
+      next: () => this.reload(),
+      error: (err) => {
+        console.error('Failed to update status:', err);
+        alert(err?.error?.message || 'Failed to update booking status');
+      }
+    });
   }
 
   cancel(b: AdminBookingRow) {
     if (this.isStatus(b, 'CANCELLED')) return;
-    this.api.cancel(b.id).subscribe(() => this.reload());
+    if (confirm('Are you sure you want to cancel this booking?')) {
+      this.api.cancel(b.id).subscribe(() => this.reload());
+    }
   }
 
   // ---------- utils ----------

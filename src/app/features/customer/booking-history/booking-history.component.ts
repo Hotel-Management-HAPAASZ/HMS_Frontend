@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 
@@ -9,7 +9,7 @@ import {
 } from '@angular/forms';
 import { generateInvoicePdf, triggerDownload } from '../../../shared/invoice-pdf';
 
-import { startWith } from 'rxjs';
+import { startWith, lastValueFrom } from 'rxjs';
 import { toSignal } from '@angular/core/rxjs-interop';
 
 import { MatTableModule } from '@angular/material/table';
@@ -28,6 +28,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { AuthService } from '../../../core/services/auth.service';
 import { BookingService } from '../../../core/services/booking.service';
 import { RoomService } from '../../../core/services/room.service';
+import { InvoiceService } from '../../../core/services/invoice.service';
 
 type TimeFilter = 'ALL' | 'CURRENT' | 'PAST';
 
@@ -490,7 +491,7 @@ export class ConfirmCancelDialogComponent {
     .empty-sub{ max-width: 55ch; margin: 0 auto; font-size: 13px; }
   `]
 })
-export class BookingHistoryComponent {
+export class BookingHistoryComponent implements OnInit {
   // Columns
   cols = ['room', 'dates', 'amount', 'status', 'actions'];
 
@@ -519,8 +520,20 @@ export class BookingHistoryComponent {
     private rooms: RoomService,
     private router: Router,
     private dialog: MatDialog,
-    private snack: MatSnackBar
+    private snack: MatSnackBar,
+    private invoiceService: InvoiceService
   ) {}
+
+  ngOnInit(): void {
+    // Refresh bookings when component loads
+    const u = this.auth.user();
+    if (u && (u as any).id) {
+      const userId = Number((u as any).id);
+      if (Number.isFinite(userId)) {
+        this.bookings.loadForUser(userId);
+      }
+    }
+  }
 
   // Pull rows for current user
   rows = computed(() => {
@@ -672,19 +685,21 @@ export class BookingHistoryComponent {
   async invoice(id: string) {
     this.snack.open('Preparing invoice...', undefined, { duration: 2000 });
     try {
-      const url = `http://localhost:8080/api/invoices/booking/${id}`;
-      const res = await fetch(url, { headers: { "Accept": "application/json" } });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-
-      const data = await res.json();
-      const blob = await generateInvoicePdf(data);
+      const data = await lastValueFrom(this.invoiceService.getInvoice(id));
+      // Generate PDF - convert null to undefined for invoiceNumber
+      const blob = await generateInvoicePdf({
+        ...data,
+        invoiceNumber: data.invoiceNumber ?? undefined,
+        transactionId: (data as any).transactionId ?? undefined
+      });
 
       const fileName = data?.invoiceNumber ? `Invoice_${data.invoiceNumber}.pdf` : `Invoice_Booking_${id}.pdf`;
       triggerDownload(blob, fileName);
       this.snack.open('Invoice downloaded successfully', 'Close', { duration: 3000 });
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      this.snack.open('Invoice could not be loaded or generated.', 'Close', { duration: 3000 });
+      const msg = err?.error?.message || err?.message || 'Invoice could not be loaded or generated.';
+      this.snack.open(msg, 'Close', { duration: 3000 });
     }
   }
 

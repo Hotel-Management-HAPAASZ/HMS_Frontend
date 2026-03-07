@@ -46,6 +46,16 @@ import { MatButtonModule } from '@angular/material/button';
           <span matListItemTitle class="nav-text">Booking History</span>
         </a>
 
+        <a mat-list-item routerLink="/customer/food" routerLinkActive="active-link">
+          <mat-icon matListItemIcon class="nav-icon">restaurant</mat-icon>
+          <span matListItemTitle class="nav-text">Order Food</span>
+        </a>
+
+        <a mat-list-item routerLink="/customer/food-history" routerLinkActive="active-link">
+          <mat-icon matListItemIcon class="nav-icon">receipt_long</mat-icon>
+          <span matListItemTitle class="nav-text">Food Orders</span>
+        </a>
+
         <div class="nav-section">Support</div>
 
         <a mat-list-item routerLink="/customer/complaint" routerLinkActive="active-link">

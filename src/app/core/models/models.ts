@@ -1,4 +1,4 @@
-export type Role = 'CUSTOMER' | 'ADMIN' | 'STAFF';
+export type Role = 'CUSTOMER' | 'ADMIN' | 'STAFF' | 'FOOD_STAFF';
 
 export interface User {
   id: string;
@@ -52,6 +52,8 @@ export interface Complaint {
   status: ComplaintStatus;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   expectedResolutionDate?: string;
+  assignedUserName?: string;
+  resolutionNote?: string;
   createdAt: string;
   updatedAt: string;
 }
