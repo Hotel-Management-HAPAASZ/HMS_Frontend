@@ -13,6 +13,28 @@ import { ToastService } from '../../../core/services/toast.service';
 import { BookingApiService } from '../../../core/services/booking-api.service';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { startWith, catchError, of } from 'rxjs';
+import { AbstractControl, ValidatorFn } from '@angular/forms';
+
+const cardNameValidator: ValidatorFn = (control: AbstractControl) => {
+  const v = (control.value ?? '').trim();
+  if (!v) return { required: true };
+  if (!/^[A-Za-z ]{3,}$/.test(v)) return { cardName: true };
+  return null;
+};
+
+const expiryFutureValidator: ValidatorFn = (control: AbstractControl) => {
+  const raw = (control.value ?? '').trim();
+  if (!raw) return { required: true };
+  const m = /^(0[1-9]|1[0-2])\/(\d{2})$/.exec(raw);
+  if (!m) return { pattern: true };
+  const mm = parseInt(m[1], 10);
+  const yy = 2000 + parseInt(m[2], 10);
+  const now = new Date();
+  const nowYM = now.getFullYear() * 100 + (now.getMonth() + 1);
+  const expYM = yy * 100 + mm;
+  if (expYM < nowYM) return { expired: true };
+  return null;
+};
 
 @Component({
   standalone: true,
@@ -133,8 +155,55 @@ import { startWith, catchError, of } from 'rxjs';
         <div class="app-card p-3 p-md-4">
           <div class="section-title mb-2">Payment</div>
 
-          <div *ngIf="!awaitingOtp() && !successMessage()">
-            <div class="text-muted small">After you click “Pay Now”, you’ll be asked for OTP.</div>
+          <div *ngIf="!awaitingOtp() && !successMessage()" [formGroup]="form">
+            <mat-form-field appearance="outline" class="w-100">
+              <mat-label>Payment Method</mat-label>
+              <mat-select formControlName="method" [disabled]="paying()">
+                <mat-option value="UPI">UPI</mat-option>
+                <mat-option value="CARD">Card</mat-option>
+                <mat-option value="CASH">Room Charge</mat-option>
+              </mat-select>
+            </mat-form-field>
+
+            <!-- UPI -->
+            <div class="mt-2" *ngIf="form.value.method === 'UPI'">
+              <mat-form-field appearance="outline" class="w-100">
+                <mat-label>UPI ID</mat-label>
+                <input matInput formControlName="upiId" placeholder="yourname@bank">
+              </mat-form-field>
+            </div>
+
+            <!-- CARD -->
+            <div class="mt-2" *ngIf="form.value.method === 'CARD'">
+              <div class="row g-2">
+                <div class="col-12">
+                  <mat-form-field appearance="outline" class="w-100">
+                    <mat-label>Card Number</mat-label>
+                    <input matInput formControlName="cardNumber" placeholder="1234567890123456" inputmode="numeric" maxlength="16">
+                  </mat-form-field>
+                </div>
+                <div class="col-12">
+                  <mat-form-field appearance="outline" class="w-100">
+                    <mat-label>Name on Card</mat-label>
+                    <input matInput formControlName="cardName" placeholder="First Last">
+                  </mat-form-field>
+                </div>
+                <div class="col-6">
+                  <mat-form-field appearance="outline" class="w-100">
+                    <mat-label>Expiry</mat-label>
+                    <input matInput formControlName="expiry" placeholder="08/29" inputmode="numeric" maxlength="5">
+                  </mat-form-field>
+                </div>
+                <div class="col-6">
+                  <mat-form-field appearance="outline" class="w-100">
+                    <mat-label>CVV</mat-label>
+                    <input matInput formControlName="cvv" type="password" placeholder="123" inputmode="numeric" maxlength="3">
+                  </mat-form-field>
+                </div>
+              </div>
+            </div>
+
+            <div class="text-muted small mt-2 mb-3">After you click “Pay Now”, you’ll be asked for OTP if paying via Card.</div>
           </div>
 
           <div *ngIf="awaitingOtp()">
@@ -287,7 +356,13 @@ export class FoodOrderComponent implements OnInit {
   successMessage = signal<string>('');
 
   form = this.fb.group({
-    quantities: this.fb.array<FormControl<number>>([])
+    quantities: this.fb.array<FormControl<number>>([]),
+    method: ['CARD', [Validators.required]],
+    upiId: [''],
+    cardNumber: [''],
+    cardName: [''],
+    expiry: [''],
+    cvv: ['']
   });
 
   otpControl = this.fb.control('', [Validators.required, Validators.pattern(/^\d{4,6}$/)]);
@@ -360,6 +435,52 @@ export class FoodOrderComponent implements OnInit {
       },
       complete: () => this.loading.set(false)
     });
+
+    this.applyMethodValidators(this.form.controls.method.value as any);
+    this.form.controls.method.valueChanges.subscribe(method => {
+      this.applyMethodValidators(method as any);
+    });
+  }
+
+  applyMethodValidators(method: 'CASH' | 'CARD' | 'UPI' | '' | null) {
+    this.form.controls.upiId.clearValidators();
+    this.form.controls.cardNumber.clearValidators();
+    this.form.controls.cardName.clearValidators();
+    this.form.controls.expiry.clearValidators();
+    this.form.controls.cvv.clearValidators();
+
+    if (method === 'UPI') {
+      this.form.controls.upiId.setValidators([Validators.required, Validators.pattern(/^[\w.\-]{2,}@[A-Za-z]{2,}$/)]);
+    }
+    if (method === 'CARD') {
+      this.form.controls.cardNumber.setValidators([Validators.required, Validators.pattern(/^\d{16}$/)]);
+      this.form.controls.cardName.setValidators([cardNameValidator]);
+      this.form.controls.expiry.setValidators([expiryFutureValidator]);
+      this.form.controls.cvv.setValidators([Validators.required, Validators.pattern(/^\d{3}$/)]);
+    }
+
+    this.form.controls.upiId.updateValueAndValidity({ emitEvent: false });
+    this.form.controls.cardNumber.updateValueAndValidity({ emitEvent: false });
+    this.form.controls.cardName.updateValueAndValidity({ emitEvent: false });
+    this.form.controls.expiry.updateValueAndValidity({ emitEvent: false });
+    this.form.controls.cvv.updateValueAndValidity({ emitEvent: false });
+  }
+
+  isValidFor(method: 'CASH' | 'CARD' | 'UPI'): boolean {
+    if (method === 'CASH') return true;
+    if (method === 'UPI') return this.form.controls.upiId.valid;
+    if (method === 'CARD') {
+      const cardControls = ['cardNumber', 'cardName', 'expiry', 'cvv'] as const;
+      return cardControls.every(k => (this.form.controls as any)[k].valid);
+    }
+    return false;
+  }
+
+  touchRelevant(method: 'CASH' | 'CARD' | 'UPI') {
+    const touch = (k: string) => (this.form.controls as any)[k]?.markAsTouched();
+    touch('method');
+    if (method === 'UPI') touch('upiId');
+    if (method === 'CARD') ['cardNumber','cardName','expiry','cvv'].forEach(touch);
   }
 
   qtyAt(i: number) {
@@ -429,10 +550,19 @@ export class FoodOrderComponent implements OnInit {
     this.lastOrderId.set(null);
     this.paying.set(true);
 
+    const method = this.form.value.method as 'CASH' | 'CARD' | 'UPI';
+    if (!method) { this.form.controls.method.markAsTouched(); this.toast.showError('Select payment method'); return; }
+    this.touchRelevant(method);
+    if (!this.isValidFor(method)) { this.toast.showError('Check payment details'); return; }
+
     const orderRequest: any = {
       userId: Number(user.id),
       items,
-      paymentMethod: 'CARD'
+      paymentMethod: method,
+      cardNumber: this.form.value.cardNumber ?? '',
+      cardHolderName: this.form.value.cardName ?? '',
+      expiry: this.form.value.expiry ?? '',
+      cvv: this.form.value.cvv ?? ''
     };
     if (bookingId) {
       orderRequest.bookingId = bookingId;
@@ -440,9 +570,15 @@ export class FoodOrderComponent implements OnInit {
 
     this.foodApi.createOrder(orderRequest).subscribe({
       next: (resp) => {
-        this.currentPayment.set(resp);
-        this.awaitingOtp.set(true);
-        this.otpControl.reset();
+        if (method === 'CARD') {
+          this.currentPayment.set(resp);
+          this.awaitingOtp.set(true);
+          this.otpControl.reset();
+        } else {
+          this.successMessage.set('Payment method accepted. Your food will arrive in ~10 minutes.');
+          this.lastOrderId.set(resp.orderId);
+          (this.form.controls.quantities as FormArray).controls.forEach(c => c.setValue(0));
+        }
       },
       error: (err) => {
         const msg = err?.error?.message || err?.message || 'Failed to create order';

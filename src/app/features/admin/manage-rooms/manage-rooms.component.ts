@@ -6,7 +6,8 @@ import {
   NonNullableFormBuilder,
   Validators,
   FormControl,
-  FormGroup
+  FormGroup,
+  FormGroupDirective
 } from '@angular/forms';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { startWith } from 'rxjs';
@@ -70,13 +71,13 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
         <mat-form-field appearance="outline" class="w-100">
           <mat-label>Room Number</mat-label>
           <input matInput formControlName="roomNumber" placeholder="e.g., 101, A-203">
-          <mat-error *ngIf="fc.roomNumber.hasError('required')">
+          <mat-error *ngIf="fc.roomNumber.touched && fc.roomNumber.hasError('required')">
             Room number is required
           </mat-error>
-          <mat-error *ngIf="fc.roomNumber.hasError('pattern')">
+          <mat-error *ngIf="fc.roomNumber.touched && fc.roomNumber.hasError('pattern')">
             Only letters, numbers and hyphens are allowed
           </mat-error>
-          <mat-error *ngIf="fc.roomNumber.hasError('duplicate')">
+          <mat-error *ngIf="fc.roomNumber.touched && fc.roomNumber.hasError('duplicate')">
             This room number already exists
           </mat-error>
         </mat-form-field>
@@ -90,7 +91,7 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
             <mat-option value="DELUXE">DELUXE</mat-option>
             <mat-option value="SUITE">SUITE</mat-option>
           </mat-select>
-          <mat-error *ngIf="fc.type.hasError('required')">Type is required</mat-error>
+          <mat-error *ngIf="fc.type.touched && fc.type.hasError('required')">Type is required</mat-error>
         </mat-form-field>
       </div>
 
@@ -98,9 +99,9 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
         <mat-form-field appearance="outline" class="w-100">
           <mat-label>Floor</mat-label>
           <input matInput type="number" formControlName="floor" placeholder="e.g., 1">
-          <mat-error *ngIf="fc.floor.hasError('required')">Floor is required</mat-error>
-          <mat-error *ngIf="fc.floor.hasError('min')">Min 0</mat-error>
-          <mat-error *ngIf="fc.floor.hasError('max')">Too high</mat-error>
+          <mat-error *ngIf="fc.floor.touched && fc.floor.hasError('required')">Floor is required</mat-error>
+          <mat-error *ngIf="fc.floor.touched && fc.floor.hasError('min')">Min 0</mat-error>
+          <mat-error *ngIf="fc.floor.touched && fc.floor.hasError('max')">Too high</mat-error>
         </mat-form-field>
       </div>
 
@@ -108,9 +109,9 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
         <mat-form-field appearance="outline" class="w-100">
           <mat-label>Max Guests</mat-label>
           <input matInput type="number" formControlName="maxGuests">
-          <mat-error *ngIf="fc.maxGuests.hasError('required')">Required</mat-error>
-          <mat-error *ngIf="fc.maxGuests.hasError('min')">Min 1</mat-error>
-          <mat-error *ngIf="fc.maxGuests.hasError('max')">Max 12</mat-error>
+          <mat-error *ngIf="fc.maxGuests.touched && fc.maxGuests.hasError('required')">Required</mat-error>
+          <mat-error *ngIf="fc.maxGuests.touched && fc.maxGuests.hasError('min')">Min 1</mat-error>
+          <mat-error *ngIf="fc.maxGuests.touched && fc.maxGuests.hasError('max')">Max 12</mat-error>
 
         </mat-form-field>
       </div>
@@ -120,9 +121,9 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
           <mat-label>Price / Night</mat-label>
           <span matPrefix>₹&nbsp;</span>
           <input matInput type="number" formControlName="pricePerNight" placeholder="e.g., 1800">
-          <mat-error *ngIf="fc.pricePerNight.hasError('required')">Required</mat-error>
-          <mat-error *ngIf="fc.pricePerNight.hasError('min')">Must be ≥ 1</mat-error>
-          <mat-error *ngIf="fc.pricePerNight.hasError('max')">Too high</mat-error>
+          <mat-error *ngIf="fc.pricePerNight.touched && fc.pricePerNight.hasError('required')">Required</mat-error>
+          <mat-error *ngIf="fc.pricePerNight.touched && fc.pricePerNight.hasError('min')">Must be ≥ 1</mat-error>
+          <mat-error *ngIf="fc.pricePerNight.touched && fc.pricePerNight.hasError('max')">Too high</mat-error>
         </mat-form-field>
       </div>
 
@@ -132,8 +133,8 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
           <mat-select formControlName="amenities" multiple>
             <mat-option *ngFor="let a of amenityOptions" [value]="a">{{ a }}</mat-option>
           </mat-select>
-          <mat-error *ngIf="fc.amenities.hasError('required')">Select at least one</mat-error>
-          <mat-error *ngIf="fc.amenities.hasError('minlength')">Select at least one</mat-error>
+          <mat-error *ngIf="fc.amenities.touched && fc.amenities.hasError('required')">Select at least one</mat-error>
+          <mat-error *ngIf="fc.amenities.touched && fc.amenities.hasError('minlength')">Select at least one</mat-error>
         </mat-form-field>
       </div>
 
@@ -142,7 +143,7 @@ type RoomType = 'STANDARD' | 'DELUXE' | 'SUITE';
           <mat-label>Description</mat-label>
           <textarea matInput rows="2" formControlName="description" placeholder="Short description (optional)"></textarea>
           <mat-hint align="end">{{ fc.description.value?.length || 0 }}/300</mat-hint>
-          <mat-error *ngIf="fc.description.hasError('maxlength')">Max 300 characters</mat-error>
+          <mat-error *ngIf="fc.description.touched && fc.description.hasError('maxlength')">Max 300 characters</mat-error>
         </mat-form-field>
       </div>
 
@@ -295,6 +296,7 @@ export class ManageRoomsComponent {
   private amenityNameToId = new Map<string, number>();
 
   @ViewChild('fileInput') fileInput!: ElementRef<HTMLInputElement>;
+  @ViewChild(FormGroupDirective) formDirective!: FormGroupDirective;
 
   constructor(
     private fb: NonNullableFormBuilder,
@@ -374,6 +376,7 @@ export class ManageRoomsComponent {
     const created = await this.roomService.create(payload as Room);
 
     if (created) {
+      this.formDirective.resetForm();
       this.form.reset({
         roomNumber: '',
         type: 'STANDARD',

@@ -276,7 +276,7 @@ type BookingRow = AdminBookingRow & {
                     <mat-select [value]="b.status || ''" (selectionChange)="changeStatus(b, $event.value)">
                       <mat-option value="PENDING">Pending</mat-option>
                       <mat-option value="CONFIRMED">Confirmed</mat-option>
-                      <mat-option value="CHECKED_IN">Checked In</mat-option>
+                      <mat-option value="CHECKED_IN" [disabled]="!canCheckIn(b)">Checked In</mat-option>
                       <mat-option value="CHECKED_OUT">Checked Out</mat-option>
                       <mat-option value="CANCELLED">Cancelled</mat-option>
                     </mat-select>
@@ -531,14 +531,15 @@ export class ManageBookingsComponent implements AfterViewInit {
     fb: NonNullableFormBuilder
   ) {
     const now = new Date();
-    const from = new Date(now); from.setDate(now.getDate() - 30);
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    const toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
     this.filterForm = fb.group(
       {
         query: fb.control(''),
         status: fb.control('' as BookingStatus),
         fromDate: fb.control(from, { validators: [Validators.required] }),
-        toDate: fb.control(now,  { validators: [Validators.required] }),
+        toDate: fb.control(toDate,  { validators: [Validators.required] }),
       },
       { validators: [dateRangeValidator] }
     );
@@ -595,12 +596,13 @@ export class ManageBookingsComponent implements AfterViewInit {
 
   resetFilters() {
     const now = new Date();
-    const from = new Date(now); from.setDate(now.getDate() - 30);
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    const toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     this.filterForm.reset({
       query: '',
       status: '' as BookingStatus,
       fromDate: from,
-      toDate: now,
+      toDate: toDate,
     });
     if (this.paginator) this.paginator.firstPage();
     this.reload();
@@ -655,6 +657,13 @@ export class ManageBookingsComponent implements AfterViewInit {
     return String(b?.status ?? '').toUpperCase() === expected;
   }
 
+  canCheckIn(b: any): boolean {
+    const ci = this.checkIn(b);
+    if (!ci) return false;
+    const today = this.startOfDay(new Date());
+    return today.getTime() >= this.startOfDay(ci).getTime();
+  }
+
   // ---------- actions ----------
   changeStatus(b: AdminBookingRow, newStatus: BookingStatus) {
     if (!newStatus || newStatus === b.status) return;
@@ -686,7 +695,12 @@ export class ManageBookingsComponent implements AfterViewInit {
       if (Number.isFinite(num) && v.trim() !== '') {
         const d = new Date(num); if (!isNaN(d.getTime())) return d;
       }
-      const d = new Date(v); return isNaN(d.getTime()) ? undefined : d;
+      // If it's a date string like 'YYYY-MM-DD', append T00:00:00 to prevent UTC shift
+      let str = v;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+        str += 'T00:00:00';
+      }
+      const d = new Date(str); return isNaN(d.getTime()) ? undefined : d;
     }
     const d = new Date(v); return isNaN(d.getTime()) ? undefined : d;
   }

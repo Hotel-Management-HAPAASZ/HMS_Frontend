@@ -64,12 +64,6 @@ export const routes: Routes = [
             .then(m => m.DashboardComponent)
       },
       {
-        path: 'search',
-        loadComponent: () =>
-          import('./features/customer/search-rooms/search-rooms.component')
-            .then(m => m.SearchRoomsComponent)
-      },
-      {
         path: 'book',
         loadComponent: () =>
           import('./features/customer/book-room/book-room.component')

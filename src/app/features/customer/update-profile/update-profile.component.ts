@@ -187,9 +187,10 @@ export class UpdateProfileComponent {
       return;
     }
 
-    const userId = Number(sessionUser.id);
-    if (Number.isNaN(userId)) {
-      this.snack.open('Invalid user id. Cannot update profile.', 'Dismiss', { duration: 2500 });
+    let userId = sessionUser.id;
+    // Allow UUIDs (strings) for mock users or numeric strings for DB users
+    if (!userId || userId === 'undefined' || userId === 'null') {
+      this.snack.open(`Invalid user id: "${userId}". Cannot update profile.`, 'Dismiss', { duration: 2500 });
       return;
     }
 

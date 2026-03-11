@@ -154,7 +154,8 @@ export class UserService {
   private resolveSource$(requested: Source = 'auto'): Observable<'api' | 'local'> {
     if (requested === 'api') return of('api');
     if (requested === 'local') return of('local');
-    return this.probeApi$().pipe(map((ok) => (ok ? 'api' : 'local')));
+    // Always prefer API. The catchError blocks will fallback to local automatically if the API is down or user is only local.
+    return of('api');
   }
 
   // -------- Async API (with fallback) --------

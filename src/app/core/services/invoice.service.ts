@@ -37,7 +37,7 @@ export interface InvoiceResponse {
 @Injectable({ providedIn: 'root' })
 export class InvoiceService {
   private http = inject(HttpClient);
-  private baseUrl = '/api/invoices';
+  private baseUrl = 'http://localhost:8080/api/invoices';
 
   /**
    * Matches your backend: GET /api/invoices/booking/{bookingId}

@@ -140,6 +140,12 @@ list(): BookingRow[] {
     this.userBookings.set(updated);
   }
 
+  getActiveStay(userId: number | string | null) {
+    const idStr = this.normId(userId);
+    if (!idStr) return this.http.get<any[]>(`${API_BASE}/user/0/active`); // dummy fail
+    return this.http.get<any[]>(`${API_BASE}/user/${idStr}/active`);
+  }
+
   /* ----------------- Utilities ----------------- */
 
   calcNights(fromISO: string, toISO: string): number {
